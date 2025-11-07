@@ -146,12 +146,6 @@ static bool shader_vk_load_from_disk(PGRAPHState *pg, uint64_t hash, ShaderModul
 
     VK_READ_OR_ERR(&cached_xemu_version_len, sizeof(cached_xemu_version_len));
 
-    // Validate version length to prevent buffer overflow
-    if (cached_xemu_version_len == 0 || cached_xemu_version_len > 1024) {
-        fclose(shader_file);
-        goto error;
-    }
-
     cached_xemu_version = g_malloc(cached_xemu_version_len + 1);
     VK_READ_OR_ERR(cached_xemu_version, cached_xemu_version_len);
     cached_xemu_version[cached_xemu_version_len] = '\0'; // Ensure null termination
@@ -161,12 +155,6 @@ static bool shader_vk_load_from_disk(PGRAPHState *pg, uint64_t hash, ShaderModul
     }
 
     VK_READ_OR_ERR(&vk_driver_len, sizeof(vk_driver_len));
-
-    // Validate driver length to prevent buffer overflow (necessary?)
-    if (vk_driver_len == 0 || vk_driver_len > 1024) {
-        fclose(shader_file);
-        goto error;
-    }
 
     cached_vk_driver = g_malloc(vk_driver_len);
     VK_READ_OR_ERR(cached_vk_driver, vk_driver_len);
@@ -180,13 +168,6 @@ static bool shader_vk_load_from_disk(PGRAPHState *pg, uint64_t hash, ShaderModul
     VK_READ_OR_ERR(&key_hash, sizeof(key_hash));
     VK_READ_OR_ERR(&spv_size, sizeof(spv_size));
 
-    // Validate SPIR-V size to prevent buffer overflow (necessary?)
-    if (spv_size == 0 || spv_size > (1024 * 1024 * 64)) { // 64MB limit
-        fclose(shader_file);
-        goto error;
-    }
-
-    // Read SPIR-V data into temporary buffer first to avoid buffer overflow
     temp_spirv_data = g_malloc(spv_size);
     VK_READ_OR_ERR(temp_spirv_data, (size_t)spv_size);
     
