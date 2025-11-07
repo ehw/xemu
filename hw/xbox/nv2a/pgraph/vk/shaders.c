@@ -62,15 +62,6 @@ static char *shader_vk_get_cache_directory(uint64_t hash)
     return shader_cache_dir;
 }
 
-static char *shader_vk_get_cache_file_path(uint64_t hash)
-{
-    char *cache_dir = shader_vk_get_cache_directory(hash);
-    char *cache_file = g_build_filename(cache_dir,
-        g_strdup_printf("%016llx.bin", (unsigned long long)hash), NULL);
-    g_free(cache_dir);
-    return cache_file;
-}
-
 static char *shader_vk_get_lru_cache_path(void)
 {
     return g_build_filename(shader_vk_get_base_path(), "shaders", "vk", "shader_cache_list", NULL);
@@ -82,12 +73,6 @@ static char *shader_vk_get_binary_path(const char *shader_cache_dir, uint64_t ha
     char *result = g_build_filename(shader_cache_dir, filename, NULL);
     g_free(filename);
     return result;
-}
-
-static void shader_vk_write_lru_list_entry_to_disk(Lru *lru, LruNode *node, void *opaque)
-{
-    FILE *lru_list_file = (FILE*) opaque;
-    fwrite(&node->hash, sizeof(uint64_t), 1, lru_list_file);
 }
 
 static bool shader_vk_load_from_disk(PGRAPHState *pg, uint64_t hash, ShaderModuleInfo **out_module)
@@ -112,10 +97,9 @@ static bool shader_vk_load_from_disk(PGRAPHState *pg, uint64_t hash, ShaderModul
         goto error;
     }
 
-    size_t nread;
     #define VK_READ_OR_ERR(data, data_len) \
         do { \
-            nread = fread(data, data_len, 1, shader_file); \
+            size_t nread = fread(data, data_len, 1, shader_file); \
             if (nread != 1) { \
                 fclose(shader_file); \
                 goto error; \
@@ -124,9 +108,8 @@ static bool shader_vk_load_from_disk(PGRAPHState *pg, uint64_t hash, ShaderModul
 
     VK_READ_OR_ERR(&cached_xemu_version_len, sizeof(cached_xemu_version_len));
 
-    cached_xemu_version = g_malloc(cached_xemu_version_len + 1);
+    cached_xemu_version = g_malloc0(cached_xemu_version_len + 1);
     VK_READ_OR_ERR(cached_xemu_version, cached_xemu_version_len);
-    cached_xemu_version[cached_xemu_version_len] = '\0';
     if (strcmp(cached_xemu_version, xemu_version) != 0) {
         fclose(shader_file);
         goto error;
@@ -134,7 +117,7 @@ static bool shader_vk_load_from_disk(PGRAPHState *pg, uint64_t hash, ShaderModul
 
     VK_READ_OR_ERR(&vk_driver_len, sizeof(vk_driver_len));
 
-    cached_vk_driver = g_malloc(vk_driver_len);
+    cached_vk_driver = g_malloc0(vk_driver_len);
     VK_READ_OR_ERR(cached_vk_driver, vk_driver_len);
     if (strcmp(cached_vk_driver, shader_vk_driver) != 0) {
         fclose(shader_file);
@@ -213,10 +196,9 @@ static void *shader_vk_write_to_disk(void *arg)
         goto error;
     }
 
-    size_t written;
     #define VK_WRITE_OR_ERR(data, data_size) \
         do { \
-            written = fwrite(data, data_size, 1, shader_file); \
+            size_t written = fwrite(data, data_size, 1, shader_file); \
             if (written != 1) { \
                 fclose(shader_file); \
                 goto error; \
@@ -229,10 +211,8 @@ static void *shader_vk_write_to_disk(void *arg)
     VK_WRITE_OR_ERR(&vk_driver_len, sizeof(vk_driver_len));
     VK_WRITE_OR_ERR(shader_vk_driver, vk_driver_len);
 
-    // Write only the hash of the key, not the entire key structure
-    // to avoid alignment and size issues
-    uint64_t key_hash = fast_hash((void *)&module->key, sizeof(module->key));
-    VK_WRITE_OR_ERR(&key_hash, sizeof(key_hash));
+    // Write the cache entry hash (already computed and stored in node)
+    VK_WRITE_OR_ERR(&module->node.hash, sizeof(module->node.hash));
     
     uint32_t spv_size = module->module_info->spirv->len;
     VK_WRITE_OR_ERR(&spv_size, sizeof(spv_size));
@@ -262,6 +242,12 @@ static void shader_vk_cache_to_disk(ShaderModuleCacheEntry *module)
     shader_vk_write_to_disk(module);
 }
 
+static void lru_write_hash_callback(Lru *lru, LruNode *node, void *opaque)
+{
+    FILE *lru_list_file = (FILE*) opaque;
+    fwrite(&node->hash, sizeof(uint64_t), 1, lru_list_file);
+}
+
 void pgraph_vk_shader_cache_write_reload_list(PGRAPHState *pg)
 {
     PGRAPHVkState *r = pg->vk_renderer_state;
@@ -280,7 +266,7 @@ void pgraph_vk_shader_cache_write_reload_list(PGRAPHState *pg)
         return;
     }
 
-    lru_visit_active(&r->shader_module_cache, shader_vk_write_lru_list_entry_to_disk, lru_list);
+    lru_visit_active(&r->shader_module_cache, lru_write_hash_callback, lru_list);
     fclose(lru_list);
 }
 
