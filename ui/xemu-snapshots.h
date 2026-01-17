@@ -49,6 +49,7 @@ int xemu_snapshots_list(QEMUSnapshotInfo **info, XemuSnapshotData **extra_data,
 void xemu_snapshots_load(const char *vm_name, Error **err);
 void xemu_snapshots_save(const char *vm_name, Error **err);
 void xemu_snapshots_delete(const char *vm_name, Error **err);
+void xemu_snapshots_schedule_patch_reapplication(void);
 
 void xemu_snapshots_save_extra_data(QEMUFile *f);
 bool xemu_snapshots_offset_extra_data(QEMUFile *f);

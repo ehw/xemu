@@ -144,6 +144,10 @@ void ShowMainMenu()
 
             ImGui::Separator();
 
+            if (ImGui::MenuItem("Patches...")) g_main_menu.ShowPatches();
+
+            ImGui::Separator();
+
             if (ImGui::MenuItem("Settings...")) g_main_menu.ShowSettings();
 
             ImGui::Separator();

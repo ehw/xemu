@@ -132,6 +132,7 @@ static void InitializeStyle()
 void xemu_hud_init(SDL_Window* window, void* sdl_gl_context)
 {
     xemu_monitor_init();
+    xemu_patches_init();
     g_vsync = g_config.display.window.vsync;
 
     InitCustomRendering();
@@ -198,6 +199,9 @@ void xemu_hud_render(void)
 
     g_viewport_mgr.Update();
     g_font_mgr.Update();
+    
+    // Process post-reset patch application
+    xemu_patches_process_post_reset();
     if (g_last_scale != g_viewport_mgr.m_scale) {
         ImGuiStyle &style = ImGui::GetStyle();
         style = g_base_style;
@@ -313,6 +317,7 @@ void xemu_hud_render(void)
     apu_window.Draw();
     video_window.Draw();
     compatibility_reporter_window.Draw();
+    xemu_patches_gui_render();
 #if defined(_WIN32)
     update_window.Draw();
 #endif

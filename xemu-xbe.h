@@ -23,6 +23,7 @@
 #define XEMU_XBE_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 // http://www.caustik.com/cxbx/download/xbe.htm
 #pragma pack(1)
@@ -104,6 +105,9 @@ struct xbe {
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// External flag to force fresh XBE certificate reads (declared in xemu-patches.c)
+extern bool g_force_fresh_xbe_read;
 
 // Get current XBE info
 struct xbe *xemu_get_xbe_info(void);

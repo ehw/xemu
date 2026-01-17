@@ -20,6 +20,8 @@
 #include "xemu-snapshots.h"
 #include "xemu-settings.h"
 #include "xemu-xbe.h"
+#include "xemu-patches.h"
+
 
 #include <SDL2/SDL.h>
 #include <epoxy/gl.h>
@@ -244,6 +246,8 @@ void xemu_snapshots_load(const char *vm_name, Error **err)
     vm_stop(RUN_STATE_RESTORE_VM);
     if (load_snapshot(vm_name, NULL, false, NULL, err) && vm_running) {
         vm_start();
+        // Schedule patch reapplication after snapshot is loaded and VM is running
+        xemu_snapshots_schedule_patch_reapplication();
     }
 }
 
@@ -330,4 +334,23 @@ bool xemu_snapshots_offset_extra_data(QEMUFile *f)
 void xemu_snapshots_mark_dirty(void)
 {
     xemu_snapshots_dirty = true;
+}
+
+// Schedule patch reapplication after snapshot loading
+void xemu_snapshots_schedule_patch_reapplication(void)
+{
+    XemuGamePatches* game_patches = xemu_patches_find_game_by_certificate();
+    if (!game_patches) {
+        return;
+    }
+    
+    for (int i = 0; i < game_patches->patch_count; i++) {
+        if (!game_patches->patches[i].enabled) {
+            return;
+        }
+    }
+    
+    start_reset_memory_monitoring();
+    g_post_reset_patch_scheduled = true;
+    g_post_reset_retry_count = 0;
 }

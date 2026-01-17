@@ -56,6 +56,7 @@ public:
     bool IsAnimating();
     void Draw(PopupMenuItemDelegate &nav);
     virtual bool DrawItems(PopupMenuItemDelegate &nav);
+    virtual bool NeedsWiderWindow() const { return false; }
 };
 
 class PopupMenuScene : virtual public PopupMenuItemDelegate, public Scene {

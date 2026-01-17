@@ -1,0 +1,1038 @@
+Game Entry
+==========
+title: CRAZY TAXI 3 High Roller
+title-id: 53450004
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-06-25 16:13:25
+disc-number: 0
+
+Patches
+=======
+  Patch: Widescreen Hack
+    Author: Nemesis2000
+    Category: Widescreen
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x00012ABC:388EE3
+      0x00012D04:388EE3
+      0x00012EE0:388EE3
+      0x00015158:96
+      0x00015160:388EE3
+      0x00015275:96
+      0x0001527D:388EE3
+      0x000164C0:388EE3
+      0x00024D71:388EE3
+      0x00024D78:96
+      0x0004E4CC:388EE3
+      0x0004E4D3:96
+      0x0004E70A:388EE3
+      0x0004E711:96
+      0x0004F0BD:388EE3
+      0x0004F0C4:96
+      0x0004F2DA:388EE3
+      0x0004F516:388EE3
+      0x0004F760:388EE3
+      0x0004FCBE:388EE3
+      0x00050094:388EE3
+      0x000514B2:388EE3
+      0x000568FE:388EE3
+      0x00056905:96
+      0x0005942B:388EE3
+      0x00059432:96
+      0x0005E7FD:388EE3
+      0x0005EA68:388EE3
+      0x0005EA6F:96
+      0x0006534A:388EE3
+      0x000858A1:388EE3
+      0x000858A8:96
+
+
+Game Entry
+==========
+title: Arctic Thunder
+title-id: 4D570002
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2001-10-18 12:11:52
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: MechAssault
+title-id: 4D530017
+region: NTSC-K
+version: 0.0.0.8
+alternate-title-id: 00000000
+time-date: 2003-08-29 20:08:50
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: BLiNX: the time sweeper
+title-id: 4D530013
+region: NTSC-U
+version: 0.0.0.6
+alternate-title-id: 00000000
+time-date: 2003-07-17 15:43:31
+disc-number: 0
+
+Patches
+=======
+  Patch: Widescreen Hack
+    Author: Esppiral & Nemesis2000 & Jay
+    Category: Widescreen
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x0009261B:388EE3
+
+
+Game Entry
+==========
+title: Gladius
+title-id: 4C410008
+region: NTSC-U
+version: 0.0.0.5
+alternate-title-id: 00000000
+time-date: 2003-09-24 15:45:22
+disc-number: 0
+
+Patches
+=======
+  Patch: test part 1
+    Author: ehw
+    Category: Other
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x0034d8EC:4C4F4C31
+
+  Patch: test part 2
+    Author: ehw
+    Category: Other
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x0034d8F0:4C4F4C32
+
+  Patch: test part 3
+    Author: ehw
+    Category: Other
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x0034d8F4:4C4F4C33
+
+  Patch: testing
+    Author: ehw
+    Category: Other
+    Notes: virtual xbe memory (data)
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x0034d8E0:48656C6C ## this is a
+      0x0034d8E4:6F20576F // multiline patc
+      0x0034d8E8:726C642E
+
+
+Game Entry
+==========
+title: Jet Set Radio Future
+title-id: 5345000A
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-01-30 18:29:29
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: PSO
+title-id: 4D53004A
+region: NTSC-U
+version: 0.0.0.4
+alternate-title-id: 00000000
+time-date: 2003-03-17 17:12:32
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Shenmue II
+title-id: 4D530032
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-10-02 16:06:50
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: segaGT 2002
+title-id: 53450003
+region: NTSC-U
+version: 0.0.0.4
+alternate-title-id: 00000000
+time-date: 2002-08-21 17:16:15
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Shadow The Hedgehog
+title-id: 53450086
+region: NTSC-U
+version: 0.0.0.9
+alternate-title-id: 00000000
+time-date: 2005-10-24 15:05:32
+disc-number: 0
+
+Patches
+=======
+  Patch: Widescreen Hack
+    Author: Unknown
+    Category: Widescreen
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x004E5D6C:ABAAAA
+
+
+Game Entry
+==========
+title: XGRA
+title-id: 41430014
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2003-08-27 15:52:32
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Panzer Dragoon ORTA
+title-id: 53450007
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-12-03 15:18:03
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Halo
+title-id: 4D530004
+region: NTSC-U
+version: 0.0.0.9
+alternate-title-id: 00000000
+time-date: 2003-11-14 15:55:30
+disc-number: 0
+
+Patches
+=======
+  Patch: 60fps
+    Author: Jao
+    Category: Enhancement
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x0007FA8F:3C0090
+      0x0007FA89:C705
+
+  Patch: Widescreen Hack
+    Author: Nemesis2000
+    Category: Widescreen
+    Enabled: 1
+    Save Replaced Values: 1
+    Memory Addresses:
+      0x0005C651:00E71E
+      0x0010E32B:A0A01F
+      0x0010E337:A0A01F
+      0x0011A463:540D
+      0x001EE700:AAAA2A
+
+
+Game Entry
+==========
+title: Halo 2
+title-id: 4D530064
+region: NTSC
+version: 0.0.8.3
+alternate-title-id: 00000000
+time-date: 2007-04-10 18:26:31
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: House of the Dead 3
+title-id: 53450008
+region: NTSC-U
+version: 0.0.1.3
+alternate-title-id: 00000000
+time-date: 2002-10-04 15:59:09
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: segaGTOnline
+title-id: 53450021
+region: NTSC-U
+version: 0.0.0.8
+alternate-title-id: 53450003
+time-date: 2003-12-10 17:05:36
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: DOUBLE S.T.E.A.L SECOND CLASH
+title-id: 42550004
+region: NTSC-J
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2004-12-08 17:26:59
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: OutRun2
+title-id: 53450036
+region: NTSC-U
+version: 0.0.0.2
+alternate-title-id: 00000000
+time-date: 2004-08-24 05:30:23
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: OutRun 2006: Coast 2 Coast
+title-id: 53450088
+region: NTSC
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2006-03-03 06:35:29
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: BLOODY ROAR extreme
+title-id: 48550001
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2003-04-10 16:00:55
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Puyo Pop Fever
+title-id: 53450027
+region: PAL
+version: 0.22.217.2
+alternate-title-id: 00000000
+time-date: 2004-02-02 06:26:59
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: FATAL FRAME
+title-id: 54430004
+region: NTSC-U
+version: 0.0.120.4
+alternate-title-id: 00000000
+time-date: 2002-11-08 16:08:12
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: GUNVALKYRIE
+title-id: 5345000B
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-02-01 18:30:45
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: GUNGRIFFON Allied Strike
+title-id: 54430009
+region: NTSC
+version: 0.0.0.3
+alternate-title-id: 00000000
+time-date: 2004-12-01 15:58:05
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Carve
+title-id: 54540010
+region: NTSC-K
+version: 0.0.0.3
+alternate-title-id: 00000000
+time-date: 2004-01-06 06:55:41
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: SILENT HILL 2
+title-id: 4B4E0004
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2001-11-27 12:52:42
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Silent Hill 4
+title-id: 4B4E001F
+region: NTSC
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2004-07-07 15:48:09
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Fatal Frame 2
+title-id: 5443000A
+region: NTSC
+version: 0.0.0.5
+alternate-title-id: 00000000
+time-date: 2004-10-19 20:52:21
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Conker: Live and Reloaded
+title-id: 4D530051
+region: NTSC-U
+version: 0.0.0.2
+alternate-title-id: 00000000
+time-date: 2005-05-03 15:35:51
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Dead or Alive XtremeBeachVolleyBall
+title-id: 54430007
+region: NTSC-U
+version: 0.1.17.6
+alternate-title-id: 54430001
+time-date: 2003-01-12 16:35:46
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: MechAssault2
+title-id: 4D53006B
+region: NTSC
+version: 0.0.0.6
+alternate-title-id: 00000000
+time-date: 2004-11-24 14:38:11
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: R:RACING EVOLUTION
+title-id: 4E4D0008
+region: NTSC-U
+version: 0.0.0.2
+alternate-title-id: 00000000
+time-date: 2003-10-29 17:31:50
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: SONICHEROES
+title-id: 5345002B
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2003-12-05 14:23:57
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: DEAD OR ALIVE ULTIMATE
+title-id: 54430006
+region: NTSC
+version: 0.0.0.5
+alternate-title-id: 54430006
+time-date: 2004-10-11 13:58:33
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Dead or Alive 3
+title-id: 54430001
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2001-10-27 12:36:26
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: DEAD OR ALIVE ULTIMATE
+title-id: 54430006
+region: NTSC
+version: 0.0.1.6
+alternate-title-id: 54430006
+time-date: 2004-11-22 18:26:16
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Forza Motorsport
+title-id: 4D53006E
+region: NTSC
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2005-03-30 16:55:17
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Burnout 3
+title-id: 4541005B
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2004-08-06 12:28:48
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Shadow Of Memories
+title-id: 4B4E000E
+region: PAL
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-08-23 07:29:37
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Mad Dash Racing
+title-id: 45530001
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2001-11-01 00:37:40
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: SONIC RIDERS
+title-id: 53450087
+region: NTSC-U
+version: 0.0.0.9
+alternate-title-id: 00000000
+time-date: 2006-02-06 14:49:04
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: TimeSplitters 2
+title-id: 4553000A
+region: NTSC-U
+version: 0.0.0.2
+alternate-title-id: 00000000
+time-date: 2002-10-08 20:51:14
+disc-number: 0
+
+Patches
+=======
+  Patch: Widescreen Hack
+    Author: Nemesis2000
+    Category: Widescreen
+    Notes: Enabling and Disabling with original values crashes the game.
+    Enabled: 1
+    Save Replaced Values: 0
+    Memory Addresses:
+      0x00032DFC:3C1C2B
+      0x00032E09:D9F2DDD8D99A1C030000A1602F4B00D944240CD8881C030000D80D287822
+      0x0004923D:68BC21
+      0x0004B821:00F0
+      0x0004B82C:0000
+      0x0004B97C:00
+      0x0004B996:E0
+      0x000E6A5B:0D28782200D8F9D918D95814D9442414D9E0D95828D9442414D84C2410D9E0D95838C3
+      0x002B1C3C:35FA0E3C
+
+
+Game Entry
+==========
+title: ATV: Quad Power Racing 2
+title-id: 4143000A
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2003-01-07 16:00:13
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Black Stone
+title-id: 58490004
+region: NTSC-K
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-12-13 15:38:11
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: BLiNX2
+title-id: 4D530065
+region: NTSC
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2004-10-25 15:55:59
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Futurama
+title-id: 56550008
+region: NTSC-U
+version: 0.0.0.2
+alternate-title-id: 00000000
+time-date: 2003-07-09 16:21:15
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Gauntlet Dark Legacy
+title-id: 4D57000E
+region: NTSC-U
+version: 0.0.0.3
+alternate-title-id: 00000000
+time-date: 2002-03-25 19:34:17
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: GROUP-S
+title-id: 43430005
+region: NTSC
+version: 0.0.0.5
+alternate-title-id: 00000000
+time-date: 2003-08-13 15:50:08
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Metal Wolf Chaos
+title-id: 46530006
+region: NTSC-J
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2004-12-01 16:41:38
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Midway Arcade Treasures
+title-id: 4D57001C
+region: NTSC-K
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2003-11-12 17:02:05
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Midway Arcade Treasures 2
+title-id: 4D570020
+region: NTSC-K
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2004-09-08 16:00:58
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Midway Arcade Treasures 3
+title-id: 4D57002D
+region: NTSC-K
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2005-09-05 04:30:04
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: phantomcrash
+title-id: 504C0001
+region: NTSC-U
+version: 0.0.0.5
+alternate-title-id: 00000000
+time-date: 2002-10-18 16:16:06
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Quantum Redshift
+title-id: 4D530015
+region: NTSC-U
+version: 0.0.0.4
+alternate-title-id: 00000000
+time-date: 2002-08-27 15:52:40
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Silent Scope Complete
+title-id: 4B4E001A
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2003-09-09 16:25:00
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: SONIC MEGACOLLECTION PLUS
+title-id: 5345003C
+region: NTSC
+version: 0.0.0.2
+alternate-title-id: 5345002B
+time-date: 2004-09-24 14:55:05
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: SOULCALIBUR2
+title-id: 4E4D0003
+region: NTSC-U
+version: 0.0.8.1
+alternate-title-id: 00000000
+time-date: 2003-06-27 15:59:29
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: SPIKEOUT Battle Street
+title-id: 53450029
+region: NTSC-U
+version: 0.0.0.2
+alternate-title-id: 00000000
+time-date: 2005-02-25 15:39:41
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Splashdown
+title-id: 4947001B
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-05-30 15:24:08
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: SuperMonkeyBallDX
+title-id: 53450038
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2005-02-11 15:55:39
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: SWAT:GST
+title-id: 56560025
+region: NTSC
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2003-10-10 15:44:17
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Tim Burton's The Nightmare Before Christ
+title-id: 42560004
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2005-08-05 15:38:34
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: TimeSplitters FP
+title-id: 45410066
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2005-03-04 17:33:17
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Tony Hawk's Pro Skater 2X
+title-id: 41560001
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2001-11-02 14:36:41
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Tony Hawk's Pro Skater 3
+title-id: 41560004
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-02-19 17:36:04
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: Tony Hawk's Pro Skater 4
+title-id: 41560017
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-09-25 16:18:29
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: TougeR
+title-id: 41540001
+region: NTSC-J
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-10-02 21:49:38
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: WINBACK2
+title-id: 4B4F0008
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2006-02-24 16:14:55
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: WRECKLESS
+title-id: 4156000A
+region: NTSC-U
+version: 0.0.0.1
+alternate-title-id: 00000000
+time-date: 2002-01-11 14:59:21
+disc-number: 0
+
+Patches
+=======
+
+Game Entry
+==========
+title: auto modellista
+title-id: 4343000E
+region: NTSC
+version: 0.0.0.2
+alternate-title-id: 00000000
+time-date: 2003-12-03 16:34:01
+disc-number: 0
+
+Patches
+=======
+
