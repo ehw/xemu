@@ -22,10 +22,15 @@
 #include "xemu-hud.h"
 #include "../xemu-snapshots.h"
 #include "../xemu-notifications.h"
+#include "../xemu-patches.h"
 #include "snapshot-manager.hh"
+#include "main-menu.hh"
 
 void ActionEjectDisc(void)
 {
+    // Close Add Game dialog if it's open to prevent adding dashboard as a game
+    g_main_menu.CloseAddGameDialog();
+    
     Error *err = NULL;
     xemu_eject_disc(&err);
     if (err) {
@@ -71,7 +76,13 @@ void ActionTogglePause(void)
 
 void ActionReset(void)
 {
+    g_manual_reset_detected = true; g_vm_reset_triggered = true; g_force_fresh_xbe_read = true;
+    
+    // Request reset - patches will be reapplied AFTER reset completes
     qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+    
+    // Schedule post-reset patch application
+    schedule_post_reset_patch_application();
 }
 
 void ActionShutdown(void)

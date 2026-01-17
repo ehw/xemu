@@ -26,6 +26,7 @@
 #include "hw/pci/pci.h"
 #include "sysemu/hw_accel.h"
 #include "cpu.h"
+#include <string.h>
 
 static int virt_to_phys(vaddr vaddr, hwaddr *phys_addr)
 {
@@ -83,10 +84,23 @@ struct xbe *xemu_get_xbe_info(void)
     vaddr hdr_addr_virt = 0x10000;
 
     static struct xbe xbe = {0};
-
-    if (xbe.headers) {
-        free(xbe.headers);
-        xbe.headers = NULL;
+    
+    // Check if we need to force a fresh read
+    if (g_force_fresh_xbe_read) {
+        if (xbe.headers) {
+            free(xbe.headers);
+            xbe.headers = NULL;
+        }
+        memset(&xbe, 0, sizeof(xbe));
+        
+        // Clear the flag after forcing fresh read
+        g_force_fresh_xbe_read = false;
+    } else {
+        // Normal cache clearing (always happens)
+        if (xbe.headers) {
+            free(xbe.headers);
+            xbe.headers = NULL;
+        }
     }
 
     // Get physical page of headers
@@ -131,6 +145,16 @@ struct xbe *xemu_get_xbe_info(void)
         return NULL;
     }
     xbe.cert = (struct xbe_certificate *)(xbe.headers + cert_addr_virt - hdr_addr_virt);
+    
+    // Extract certificate data
+    if (xbe.cert) {
+        uint32_t title_id = ldl_le_p(&xbe.cert->m_titleid);
+        uint32_t region = ldl_le_p(&xbe.cert->m_game_region);
+        uint32_t version = ldl_le_p(&xbe.cert->m_version);
+        
+        // Certificate data is now available in xbe.cert
+        // This data can be used by calling code to identify the game
+    }
 
     return &xbe;
 }

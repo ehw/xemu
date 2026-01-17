@@ -26,6 +26,7 @@
 #include "scene-components.hh"
 #include "../xemu-snapshots.h"
 #include "../xemu-controllers.h"
+#include "../xemu-patches.h"
 #include "ui/xemu-input.h"
 
 extern "C" {
@@ -155,6 +156,72 @@ public:
     void Draw() override;
 };
 
+class MainMenuPatchesView : public virtual MainMenuTabView
+{
+protected:
+    void DrawGameSection(XemuGamePatches *game, int game_index);
+    void DrawPatchSection(XemuGamePatches *game, int game_index);
+    void DrawAddGameDialog(void);
+    void DrawAddPatchDialog(void);
+    void DrawEditPatchDialog(void);
+    void DrawEditGameDialog(void);
+    void DrawGamesTable(void);
+    void DrawGameDetailsWindow(void);
+    void ResetState(void);
+    static bool ValidatePatchData(const char* patch_name, const char* patch_category, 
+                                  const char* address_value_pairs, char* error_msg, 
+                                  size_t error_msg_size, bool is_edit, int edit_index,
+                                  XemuGamePatches* games, int selected_game_index);
+    
+public:
+    // Public method to close Add Game dialog
+    void CloseAddGameDialog() {
+        m_show_add_game_dialog = false;
+        printf("🔧 [PATCHES-VIEW] Add Game dialog closed\n");
+        printf("🔧 [PATCHES-VIEW] Note: Add Game button should now be disabled due to no disc\n");
+    }
+    
+    bool m_show_add_game_dialog = false;
+    bool m_show_add_patch_dialog = false;
+    bool m_show_edit_patch_dialog = false;
+    bool m_show_game_details_window = false;
+    bool m_reset_state = false;
+    
+    // Dialog input fields
+    char m_add_game_title[128];
+    char m_add_game_region[64];
+    char m_add_game_title_id[32];
+    char m_add_game_version[32];
+    char m_add_game_alternate_title_id[32];
+    char m_add_game_time_date[32];
+    char m_add_game_disc_number[8];
+
+    
+    // Patch dialog fields
+    char m_patch_name[128];
+    char m_patch_category[64];
+    char m_patch_author[64];
+    char m_patch_notes[512];
+    char m_patch_address_value_pairs[2048];  // Increased size for multiple address:value pairs
+    char m_edit_error_message[256];  // Error message buffer for patch validation
+    bool m_save_replaced_values;  // Save original memory values before applying patch
+    
+    // Game details state
+    int m_selected_game_index = -1;
+    int m_editing_patch_index = -1;
+    int m_patch_to_delete = -1;
+    
+    // Table sorting
+    int m_sort_column = -1;
+    bool m_sort_ascending = true;
+    
+    // Table flags
+    ImGuiTableFlags table_flags;
+    
+public:
+    void Draw() override;
+};
+
 class MainMenuTabButton
 {
 protected:
@@ -181,6 +248,7 @@ protected:
                                     m_audio_button,
                                     m_network_button,
                                     m_snapshots_button,
+                                    m_patches_button,
                                     m_system_button,
                                     m_about_button;
     std::vector<MainMenuTabView*>   m_views;
@@ -190,6 +258,7 @@ protected:
     MainMenuAudioView               m_audio_view;
     MainMenuNetworkView             m_network_view;
     MainMenuSnapshotsView           m_snapshots_view;
+    MainMenuPatchesView             m_patches_view;
     MainMenuSystemView              m_system_view;
     MainMenuAboutView               m_about_view;
 
@@ -200,6 +269,7 @@ public:
     void ShowSystem();
     void ShowAbout();
     void ShowSnapshots();
+    void ShowPatches();
     void SetNextViewIndexWithFocus(int i);
     void Show() override;
     void Hide() override;
@@ -210,6 +280,9 @@ public:
     bool ConsumeRebindEvent(SDL_Event *event);
     bool IsInputRebinding();
     bool Draw() override;
+    
+    // Public method to close Add Game dialog (used by Eject Disc action)
+    void CloseAddGameDialog();
 };
 
 extern MainMenuScene g_main_menu;

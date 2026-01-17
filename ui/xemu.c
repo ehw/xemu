@@ -50,6 +50,7 @@
 #include "xemu-snapshots.h"
 #include "xemu-version.h"
 #include "xemu-os-utils.h"
+#include "xemu-patches.h"
 
 #include "data/xemu_64x64.png.h"
 
@@ -1250,6 +1251,7 @@ static void *call_qemu_main(void *opaque)
 
     DPRINTF("Second thread: calling qemu_main()\n");
     qemu_init(gArgc, gArgv);
+    initialize_disc_presence_tracking(); // Initialize disc presence tracking system
     status = qemu_main();
     DPRINTF("Second thread: qemu_main() returned, exiting\n");
     exit(status);
@@ -1373,6 +1375,11 @@ int main(int argc, char **argv)
     }
     atexit(xemu_settings_save);
 
+    // Initialize patches system
+    xemu_patches_init();
+    // Apply patches at startup if XBE is already loaded
+    xemu_patches_on_startup();
+
 #ifdef _WIN32
     if (g_config.display.setup_nvidia_profile) {
         setup_nvidia_profile();
@@ -1420,6 +1427,9 @@ int main(int argc, char **argv)
 
 void xemu_eject_disc(Error **errp)
 {
+    // Immediately mark disc as ejected to disable patch system
+    g_disc_present = false; g_patch_system_enabled = false;
+    
     Error *error = NULL;
 
     xbox_smc_eject_button();
@@ -1437,6 +1447,9 @@ void xemu_eject_disc(Error **errp)
 void xemu_load_disc(const char *path, Error **errp)
 {
     Error *error = NULL;
+    
+    // TIMING FIX: Track Load Disc operation to prevent early patch application
+    g_load_disc_in_progress = true;
 
     // Ensure an eject sequence is always triggered so Xbox software reloads
     xbox_smc_eject_button();
@@ -1446,8 +1459,22 @@ void xemu_load_disc(const char *path, Error **errp)
                                false, 0, &error);
     if (error) {
         error_propagate(errp, error);
+        // If there's an error, clear Load Disc flag to prevent it from staying active
+        if (g_load_disc_in_progress) {
+            g_load_disc_in_progress = false;
+        }
     } else {
         xemu_settings_set_string(&g_config.sys.files.dvd_path, path);
+        
+        // Let the natural game switch detection handle cache clearing and tracking reset
+        // This ensures it happens AFTER the VM has finished loading the new game
+        
+        // Schedule patches for application after VM reset completion
+        // This prevents applying patches for the wrong game during transition
+        schedule_post_reset_patch_application();
+        
+        // DON'T clear Load Disc flag immediately - let post-reset processing handle it
+        // This ensures protection remains active until VM actually finishes switching games
     }
 
     xbox_smc_update_tray_state();

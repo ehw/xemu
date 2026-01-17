@@ -27,3 +27,6 @@ void ActionShutdown();
 void ActionScreenshot();
 void ActionActivateBoundSnapshot(int slot, bool save);
 void ActionLoadSnapshotChecked(const char *name);
+
+// External function from xemu-patches.c for manual reset signaling
+extern "C" void signal_manual_reset(void);

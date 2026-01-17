@@ -6,6 +6,7 @@ xemu_ss.add(files(
   'font-manager.cc',
   'gl-helpers.cc',
   'input-manager.cc',
+  'virtual-memory-access.c',
   'main-menu.cc',
   'main.cc',
   'menubar.cc',
