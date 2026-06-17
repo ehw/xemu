@@ -117,6 +117,22 @@ static void apply_texture_parameters(PGRAPHGLState *r,
                                      uint32_t border_color,
                                      uint32_t max_anisotropy)
 {
+    /* this runs per stage per bind even on the reusable
+     * path (tens of thousands of calls/frame), re-deriving masks/remaps before
+     * the per-param compares can skip the GL calls. Equal raw inputs on
+     * the same binding mean a deterministic no-op, so skip the whole derive.
+     * Spec keeps the unconditional call. */
+    if (r->uber_active && binding->uber_tp_valid &&
+        binding->uber_tp_filter == filter &&
+        binding->uber_tp_address == address &&
+        binding->uber_tp_border_color == border_color &&
+        binding->uber_tp_aniso == max_anisotropy &&
+        binding->uber_tp_bordered == is_bordered &&
+        binding->uber_tp_dim == dimensionality &&
+        binding->uber_tp_finfo == (const void *)f) {
+        return;
+    }
+
     unsigned int min_filter = GET_MASK(filter, NV_PGRAPH_TEXFILTER0_MIN);
     unsigned int mag_filter = GET_MASK(filter, NV_PGRAPH_TEXFILTER0_MAG);
     unsigned int lod_bias =
@@ -141,16 +157,19 @@ static void apply_texture_parameters(PGRAPHGLState *r,
     }
 
     if (min_filter != binding->min_filter) {
+        pgraph_gl_uber_submit_md(r);
         glTexParameteri(binding->gl_target, GL_TEXTURE_MIN_FILTER,
                         pgraph_texture_min_filter_gl_map[min_filter]);
         binding->min_filter = min_filter;
     }
     if (mag_filter != binding->mag_filter) {
+        pgraph_gl_uber_submit_md(r);
         glTexParameteri(binding->gl_target, GL_TEXTURE_MAG_FILTER,
                         pgraph_texture_mag_filter_gl_map[mag_filter]);
         binding->mag_filter = mag_filter;
     }
     if (lod_bias != binding->lod_bias) {
+        pgraph_gl_uber_submit_md(r);
         binding->lod_bias = lod_bias;
         glTexParameterf(binding->gl_target, GL_TEXTURE_LOD_BIAS,
                         pgraph_convert_lod_bias_to_float(lod_bias));
@@ -159,6 +178,7 @@ static void apply_texture_parameters(PGRAPHGLState *r,
     /* Texture wrapping */
     assert(addru < ARRAY_SIZE(pgraph_texture_addr_gl_map));
     if (addru != binding->addru) {
+        pgraph_gl_uber_submit_md(r);
         glTexParameteri(binding->gl_target, GL_TEXTURE_WRAP_S,
                         pgraph_texture_addr_gl_map[addru]);
         binding->addru = addru;
@@ -166,6 +186,7 @@ static void apply_texture_parameters(PGRAPHGLState *r,
     bool needs_border_color = binding->addru == NV_PGRAPH_TEXADDRESS0_ADDRU_BORDER;
     if (dimensionality > 1) {
         if (addrv != binding->addrv) {
+            pgraph_gl_uber_submit_md(r);
             assert(addrv < ARRAY_SIZE(pgraph_texture_addr_gl_map));
             glTexParameteri(binding->gl_target, GL_TEXTURE_WRAP_T,
                             pgraph_texture_addr_gl_map[addrv]);
@@ -175,6 +196,7 @@ static void apply_texture_parameters(PGRAPHGLState *r,
     }
     if (dimensionality > 2) {
         if (addrp != binding->addrp) {
+            pgraph_gl_uber_submit_md(r);
             assert(addrp < ARRAY_SIZE(pgraph_texture_addr_gl_map));
             glTexParameteri(binding->gl_target, GL_TEXTURE_WRAP_R,
                             pgraph_texture_addr_gl_map[addrp]);
@@ -184,12 +206,19 @@ static void apply_texture_parameters(PGRAPHGLState *r,
     }
 
     if (r->supported_extensions.texture_filter_anisotropic) {
-        glTexParameterf(binding->gl_target, GL_TEXTURE_MAX_ANISOTROPY_EXT,
-                        max_anisotropy);
+        /* the one unshadowed call in this function —
+         * value-gate it (uber only; spec keeps the unconditional call). */
+        if (!r->uber_active || binding->uber_max_anisotropy != max_anisotropy) {
+            pgraph_gl_uber_submit_md(r);
+            glTexParameterf(binding->gl_target, GL_TEXTURE_MAX_ANISOTROPY_EXT,
+                            max_anisotropy);
+            binding->uber_max_anisotropy = max_anisotropy;
+        }
     }
 
     if (!is_bordered && needs_border_color) {
         if (!binding->border_color_set || binding->border_color != border_color) {
+            pgraph_gl_uber_submit_md(r);
             /* FIXME: Color channels might be wrong order */
             GLfloat gl_border_color[4];
             pgraph_argb_pack32_to_rgba_float(border_color, gl_border_color);
@@ -200,6 +229,17 @@ static void apply_texture_parameters(PGRAPHGLState *r,
             binding->border_color = border_color;
         }
     }
+    if (r->uber_active) { /* record the applied inputs */
+        binding->uber_tp_valid = true;
+        binding->uber_tp_filter = filter;
+        binding->uber_tp_address = address;
+        binding->uber_tp_border_color = border_color;
+        binding->uber_tp_aniso = max_anisotropy;
+        binding->uber_tp_bordered = is_bordered;
+        binding->uber_tp_dim = dimensionality;
+        binding->uber_tp_finfo = (const void *)f;
+    }
+
 }
 
 void pgraph_gl_bind_textures(NV2AState *d)
@@ -214,14 +254,30 @@ void pgraph_gl_bind_textures(NV2AState *d)
         bool enabled = pgraph_is_texture_enabled(pg, i);
         /* FIXME: What happens if texture is disabled but stage is active? */
 
+        /* a disabled stage only needs its units cleared
+         * once — skip the repeated unbind storm until something binds. */
+        if (r->uber_active && !enabled && r->uber_stage_unbound[i]) {
+            continue;
+        }
         glActiveTexture(GL_TEXTURE0 + i);
         if (!enabled) {
+            pgraph_gl_uber_submit_md(r);
             glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
             glBindTexture(GL_TEXTURE_1D, 0);
             glBindTexture(GL_TEXTURE_2D, 0);
             glBindTexture(GL_TEXTURE_3D, 0);
+            if (r->uber_active) {
+                glActiveTexture(GL_TEXTURE0 + 4 + i);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+                glActiveTexture(GL_TEXTURE0 + 8 + i);
+                glBindTexture(GL_TEXTURE_3D, 0);
+                r->uber_stage_unbound[i] = true;
+                r->uber_aux_cube_tex[i] = 0;
+                r->uber_aux_3d_tex[i] = 0;
+            }
             continue;
         }
+        r->uber_stage_unbound[i] = false;
 
         uint32_t filter = pgraph_reg_r(pg, NV_PGRAPH_TEXFILTER0 + i*4);
         uint32_t address = pgraph_reg_r(pg, NV_PGRAPH_TEXADDRESS0 + i*4);
@@ -281,9 +337,33 @@ void pgraph_gl_bind_textures(NV2AState *d)
                                          state.border,
                                          border_color,
                                          max_anisotropy);
+                if (r->uber_active) {
+                    TextureBinding *tb = r->texture_binding[i];
+                    /* skip same-texture aux rebinds */
+                    if (tb->gl_target == GL_TEXTURE_CUBE_MAP &&
+                        r->uber_aux_cube_tex[i] != tb->gl_texture) {
+                        pgraph_gl_uber_submit_md(r);
+                        glActiveTexture(GL_TEXTURE0 + 4 + i);
+                        glBindTexture(GL_TEXTURE_CUBE_MAP, tb->gl_texture);
+                        glActiveTexture(GL_TEXTURE0 + i);
+                        r->uber_aux_cube_tex[i] = tb->gl_texture;
+                    } else if (tb->gl_target == GL_TEXTURE_3D &&
+                               r->uber_aux_3d_tex[i] != tb->gl_texture) {
+                        pgraph_gl_uber_submit_md(r);
+                        glActiveTexture(GL_TEXTURE0 + 8 + i);
+                        glBindTexture(GL_TEXTURE_3D, tb->gl_texture);
+                        glActiveTexture(GL_TEXTURE0 + i);
+                        r->uber_aux_3d_tex[i] = tb->gl_texture;
+                    }
+                }
                 continue;
             }
         }
+
+        /* past this point the stage's texture genuinely
+         * changes (upload/create/rebind) — submit any deferred multidraw
+         * before the first mutation below. */
+        pgraph_gl_uber_submit_md(r);
 
         /*
          * Check active surfaces to see if this texture was a render target
@@ -402,7 +482,23 @@ void pgraph_gl_bind_textures(NV2AState *d)
         }
         r->texture_binding[i] = binding;
         pg->texture_dirty[i] = false;
+
+        if (r->uber_active) {
+            /* track aux-unit contents (new binding = new
+             * texture object, so these always differ; record them) */
+            if (binding->gl_target == GL_TEXTURE_CUBE_MAP) {
+                glActiveTexture(GL_TEXTURE0 + 4 + i);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, binding->gl_texture);
+                r->uber_aux_cube_tex[i] = binding->gl_texture;
+            } else if (binding->gl_target == GL_TEXTURE_3D) {
+                glActiveTexture(GL_TEXTURE0 + 8 + i);
+                glBindTexture(GL_TEXTURE_3D, binding->gl_texture);
+                r->uber_aux_3d_tex[i] = binding->gl_texture;
+            }
+            r->uber_stage_unbound[i] = false;
+        }
     }
+
     NV2A_GL_DGROUP_END();
 }
 
@@ -727,6 +823,16 @@ static TextureBinding* generate_texture(const TextureShape s,
         upload_gl_texture(gl_target, s, texture_data, palette_data);
     }
 
+    /* capture the level-0 dims GL just allocated -
+     * the exact ints textureSize(samp,0) would return for this object. */
+    GLint tex_dims[2] = { 0, 0 };
+    if (gl_target == GL_TEXTURE_2D) {
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH,
+                                 &tex_dims[0]);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT,
+                                 &tex_dims[1]);
+    }
+
     /* Linear textures don't support mipmapping */
     if (!f.linear) {
         glTexParameteri(gl_target, GL_TEXTURE_BASE_LEVEL,
@@ -742,6 +848,11 @@ static TextureBinding* generate_texture(const TextureShape s,
     }
 
     TextureBinding* ret = (TextureBinding *)g_malloc(sizeof(TextureBinding));
+    ret->uber_tex_size[0] = tex_dims[0];
+    ret->uber_tex_size[1] = tex_dims[1];
+    ret->uber_tp_valid = false; /* g_malloc is uninitialized
+                                 * — a garbage-true valid bit would stale-skip
+                                 * the first param apply on a fresh binding */
     ret->gl_target = gl_target;
     ret->gl_texture = gl_texture;
     ret->refcnt = 1;
@@ -754,6 +865,7 @@ static TextureBinding* generate_texture(const TextureShape s,
     ret->addrv = 0xFFFFFFFF;
     ret->addrp = 0xFFFFFFFF;
     ret->border_color_set = false;
+    ret->uber_max_anisotropy = 0; /* force first set */
     return ret;
 }
 

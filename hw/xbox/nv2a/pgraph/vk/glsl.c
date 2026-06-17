@@ -387,6 +387,19 @@ static void finalize_uniform_layout(ShaderUniformLayout *layout)
     }
 }
 
+ShaderModuleInfo *pgraph_vk_create_shader_module_from_spirv(
+    PGRAPHVkState *r, const uint8_t *spirv_data, size_t spirv_size)
+{
+    ShaderModuleInfo *info = g_malloc0(sizeof(*info));
+    info->refcnt = 0;
+    info->glsl = NULL;
+    info->spirv = g_byte_array_new();
+    g_byte_array_append(info->spirv, spirv_data, spirv_size);
+    info->module = pgraph_vk_create_shader_module_from_spv(r, info->spirv);
+    init_layout_from_spv(info);
+    return info;
+}
+
 void pgraph_vk_ref_shader_module(ShaderModuleInfo *info)
 {
     info->refcnt++;

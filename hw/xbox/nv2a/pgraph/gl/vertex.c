@@ -30,7 +30,7 @@ static void update_memory_buffer(NV2AState *d, hwaddr addr, hwaddr size,
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
 
-    glBindBuffer(GL_ARRAY_BUFFER, r->gl_memory_buffer);
+    pgraph_gl_uber_bind_array_buffer(r, r->gl_memory_buffer);
 
     hwaddr end = TARGET_PAGE_ALIGN(addr + size);
     addr &= TARGET_PAGE_MASK;
@@ -46,6 +46,9 @@ static void update_memory_buffer(NV2AState *d, hwaddr addr, hwaddr size,
     size = end - addr;
     if (memory_region_test_and_clear_dirty(d->vram, addr, size,
                                            DIRTY_MEMORY_NV2A)) {
+        /* a deferred multidraw reads this buffer — submit
+         * it (old bytes) before overwriting with the guest's new bytes. */
+        pgraph_gl_uber_submit_md(r);
         glBufferSubData(GL_ARRAY_BUFFER, addr, size,
                         d->vram_ptr + addr);
         nv2a_profile_inc_counter(NV2A_PROF_GEOM_BUFFER_UPDATE_1);
@@ -57,8 +60,60 @@ void pgraph_gl_update_entire_memory_buffer(NV2AState *d)
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
 
-    glBindBuffer(GL_ARRAY_BUFFER, r->gl_memory_buffer);
+    pgraph_gl_uber_bind_array_buffer(r, r->gl_memory_buffer);
     glBufferSubData(GL_ARRAY_BUFFER, 0, memory_region_size(d->vram), d->vram_ptr);
+}
+
+/* shadow-aware attribute-state writers. One VAO exists and
+ * every attr-state write site routes through these, so the shadow tracks
+ * the context faithfully; identical respecifications (the dominant case —
+ * several redundant calls/draw) are skipped. Uber-gated:
+ * spec always issues the raw calls. */
+void pgraph_gl_uber_attr_disable_generic(PGRAPHGLState *r, int i,
+                                         const float value[4])
+{
+    struct UberGlAttrShadow *sh = &r->uber_gl_attr_shadow[i];
+    if (r->uber_active && sh->valid && !sh->enabled &&
+        memcmp(sh->generic, value, sizeof(sh->generic)) == 0) {
+        return;
+    }
+    pgraph_gl_uber_submit_md(r);
+    glDisableVertexAttribArray(i);
+    glVertexAttrib4fv(i, value);
+    sh->valid = true;
+    sh->enabled = false;
+    memcpy(sh->generic, value, sizeof(sh->generic));
+}
+
+void pgraph_gl_uber_attr_pointer(PGRAPHGLState *r, int i, GLuint buffer,
+                                 GLint count, GLenum type,
+                                 GLboolean normalize, bool ipointer,
+                                 GLsizei stride, uintptr_t offset)
+{
+    struct UberGlAttrShadow *sh = &r->uber_gl_attr_shadow[i];
+    if (r->uber_active && sh->valid && sh->enabled && sh->buffer == buffer &&
+        sh->count == count && sh->type == type &&
+        sh->normalize == normalize && sh->ipointer == ipointer &&
+        sh->stride == stride && sh->offset == offset) {
+        return;
+    }
+    pgraph_gl_uber_submit_md(r);
+    if (ipointer) {
+        glVertexAttribIPointer(i, count, type, stride, (void *)offset);
+    } else {
+        glVertexAttribPointer(i, count, type, normalize, stride,
+                              (void *)offset);
+    }
+    glEnableVertexAttribArray(i);
+    sh->valid = true;
+    sh->enabled = true;
+    sh->buffer = buffer;
+    sh->count = count;
+    sh->type = type;
+    sh->normalize = normalize;
+    sh->ipointer = ipointer;
+    sh->stride = stride;
+    sh->offset = offset;
 }
 
 void pgraph_gl_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
@@ -81,12 +136,18 @@ void pgraph_gl_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
 
     pg->compressed_attrs = 0;
 
+    /* nv_dma_map (a guest DMA-object read)
+     * was called per enabled attribute to resolve only
+     * dma_vertex_a/b — resolve each at most once per call. The map is pure;
+     * uber-gated to keep the spec path's exact call pattern. */
+    uint8_t *dma_maps[2] = { NULL, NULL };
+    hwaddr dma_lens[2] = { 0, 0 };
+
     for (int i = 0; i < NV2A_VERTEXSHADER_ATTRIBUTES; i++) {
         VertexAttribute *attr = &pg->vertex_attributes[i];
 
         if (!attr->count) {
-            glDisableVertexAttribArray(i);
-            glVertexAttrib4fv(i, attr->inline_value);
+            pgraph_gl_uber_attr_disable_generic(r, i, attr->inline_value);
             continue;
         }
 
@@ -143,14 +204,26 @@ void pgraph_gl_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
 
         hwaddr start = 0;
         if (inline_data) {
-            glBindBuffer(GL_ARRAY_BUFFER, r->gl_inline_array_buffer);
+            pgraph_gl_uber_bind_array_buffer(r, r->gl_inline_array_buffer);
             attrib_data_addr = attr->inline_array_offset;
             stride = inline_stride;
         } else {
             hwaddr dma_len;
-            uint8_t *attr_data = (uint8_t *)nv_dma_map(
-                d, attr->dma_select ? pg->dma_vertex_b : pg->dma_vertex_a,
-                &dma_len);
+            uint8_t *attr_data;
+            if (r->uber_active) {
+                int sel = attr->dma_select ? 1 : 0;
+                if (!dma_maps[sel]) {
+                    dma_maps[sel] = (uint8_t *)nv_dma_map(
+                        d, sel ? pg->dma_vertex_b : pg->dma_vertex_a,
+                        &dma_lens[sel]);
+                }
+                attr_data = dma_maps[sel];
+                dma_len = dma_lens[sel];
+            } else {
+                attr_data = (uint8_t *)nv_dma_map(
+                    d, attr->dma_select ? pg->dma_vertex_b : pg->dma_vertex_a,
+                    &dma_len);
+            }
             assert(attr->offset < dma_len);
             attrib_data_addr = attr_data + attr->offset - d->vram_ptr;
             stride = attr->stride;
@@ -174,20 +247,15 @@ void pgraph_gl_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
             // Stride of 0 indicates that only the first element should be
             // used.
             pgraph_update_inline_value(attr, last_entry);
-            glDisableVertexAttribArray(i);
-            glVertexAttrib4fv(i, attr->inline_value);
+            pgraph_gl_uber_attr_disable_generic(r, i, attr->inline_value);
             continue;
         }
 
-        if (needs_conversion) {
-            glVertexAttribIPointer(i, gl_count, gl_type, stride,
-                                   (void *)attrib_data_addr);
-        } else {
-            glVertexAttribPointer(i, gl_count, gl_type, gl_normalize, stride,
-                                  (void *)attrib_data_addr);
-        }
-
-        glEnableVertexAttribArray(i);
+        pgraph_gl_uber_attr_pointer(
+            r, i,
+            inline_data ? r->gl_inline_array_buffer : r->gl_memory_buffer,
+            gl_count, gl_type, gl_normalize, needs_conversion, stride,
+            (uintptr_t)attrib_data_addr);
         last_entry += stride * provoking_element_index;
         pgraph_update_inline_value(attr, last_entry);
     }
@@ -222,7 +290,7 @@ unsigned int pgraph_gl_bind_inline_array(NV2AState *d)
     NV2A_DPRINTF("draw inline array %d, %d\n", vertex_size, index_count);
 
     nv2a_profile_inc_counter(NV2A_PROF_GEOM_BUFFER_UPDATE_2);
-    glBindBuffer(GL_ARRAY_BUFFER, r->gl_inline_array_buffer);
+    pgraph_gl_uber_bind_array_buffer(r, r->gl_inline_array_buffer);
     GLsizeiptr buffer_size = index_count * vertex_size;
     glBufferData(GL_ARRAY_BUFFER, buffer_size, NULL, GL_STREAM_DRAW);
     glBufferSubData(GL_ARRAY_BUFFER, 0, buffer_size, pg->inline_array);
@@ -273,7 +341,7 @@ void pgraph_gl_init_buffers(NV2AState *d)
     glGenBuffers(1, &r->gl_inline_array_buffer);
 
     glGenBuffers(1, &r->gl_memory_buffer);
-    glBindBuffer(GL_ARRAY_BUFFER, r->gl_memory_buffer);
+    pgraph_gl_uber_bind_array_buffer(r, r->gl_memory_buffer);
     glBufferData(GL_ARRAY_BUFFER, memory_region_size(d->vram),
                  NULL, GL_DYNAMIC_DRAW);
 

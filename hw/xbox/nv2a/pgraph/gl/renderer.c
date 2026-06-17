@@ -101,6 +101,7 @@ static void pgraph_gl_finalize(NV2AState *d)
 
 static void pgraph_gl_flip_stall(NV2AState *d)
 {
+    pgraph_gl_uber_submit_md(d->pgraph.gl_renderer_state);
     NV2A_GL_DFRAME_TERMINATOR();
     glFinish();
 }

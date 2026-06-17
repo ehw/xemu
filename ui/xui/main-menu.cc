@@ -67,6 +67,8 @@ void MainMenuGeneralView::Draw()
 
     Toggle("Cache shaders to disk", &g_config.perf.cache_shaders,
            "Reduce stutter in games by caching previously generated shaders");
+    Toggle("Use ubershaders", &g_config.perf.use_ubershaders,
+           "Use a single uber shader instead of specialized shaders (experimental)");
 
     SectionTitle("Miscellaneous");
     Toggle("Skip startup animation", &g_config.general.skip_boot_anim,

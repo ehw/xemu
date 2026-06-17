@@ -331,6 +331,55 @@ static void add_optional_device_extension_names(
     r->memory_budget_extension_enabled = add_extension_if_available(
         available_extensions, enabled_extension_names,
         VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+
+    /* EDS detection. The EDS1 stencil block must NOT force
+     * StencilTestEnable + register stencil ops on stencil-disabled draws —
+     * that corrupted the stencil buffer and broke a stencil-shadow case (VK
+     * uber only). Every draw.c consumer is flag-guarded + uber_active-gated —
+     * spec untouched by construction; EDS3's feature query downstream can
+     * still demote it. */
+    r->extended_dynamic_state_enabled = add_extension_if_available(
+        available_extensions, enabled_extension_names,
+        VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
+    r->extended_dynamic_state3_enabled = add_extension_if_available(
+        available_extensions, enabled_extension_names,
+        VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
+
+    /* vertex input as dynamic state - removes the vertex
+     * binding/attribute descriptions from the uber pipeline key entirely.
+     * Consumers are uber_active-gated in vk/draw.c. */
+    r->vertex_input_dynamic_state_enabled = add_extension_if_available(
+        available_extensions, enabled_extension_names,
+        VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
+
+    /* NV passthrough GS — the smooth tri-class variants
+     * forward per-vertex attrs unchanged and only add per-primitive flats,
+     * so the GS runs once per primitive with no re-emission. Capability-only
+     * extension (no feature struct). Consumers are uber_active-gated. */
+    r->geom_passthrough_enabled = add_extension_if_available(
+        available_extensions, enabled_extension_names,
+        VK_NV_GEOMETRY_SHADER_PASSTHROUGH_EXTENSION_NAME);
+
+    /* (experimental branch): VK_EXT_descriptor_indexing for
+     * descriptorBindingPartiallyBound — lets the uber texture set leave the
+     * inactive Cube/3D sampler slots unbound instead of binding dummies. The
+     * uber PSH only accesses the type-matched sampler per stage (cube/3d
+     * accessors are all under is_cubemap/is_3d guards), so the unbound slots
+     * are never dynamically used. Drops the per-draw dummy_cube/dummy_3d writes
+     * (full-path 16->8 on all-2D content). uber-only consumer in
+     * vk/shaders.c; spec unaffected. Feature confirmed below. */
+    r->descriptor_indexing_enabled = add_extension_if_available(
+        available_extensions, enabled_extension_names,
+        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+
+    /* some content submits ~18.5k tiny draw
+     * ranges/frame, one vkCmdDraw each; vkCmdDrawMultiEXT encodes all of a
+     * flush's ranges (avg ~2.4) as ONE command. Consumer is uber_active-
+     * gated in vk/draw.c; the feature is chained below. */
+    r->multi_draw_enabled = add_extension_if_available(
+        available_extensions, enabled_extension_names,
+        VK_EXT_MULTI_DRAW_EXTENSION_NAME);
+
 }
 
 static bool check_device_support_required_extensions(VkPhysicalDevice device)
@@ -529,6 +578,150 @@ static bool create_logical_device(PGRAPHState *pg, Error **errp)
         next_struct = &custom_border_features;
     }
 
+    VkPhysicalDeviceExtendedDynamicState3FeaturesEXT eds3_features;
+    if (r->extended_dynamic_state3_enabled) {
+        VkPhysicalDeviceExtendedDynamicState3FeaturesEXT eds3_query = {
+            .sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
+        };
+        VkPhysicalDeviceFeatures2 features2 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &eds3_query,
+        };
+        vkGetPhysicalDeviceFeatures2(r->physical_device, &features2);
+
+        bool have_blend = eds3_query.extendedDynamicState3ColorBlendEnable &&
+                          eds3_query.extendedDynamicState3ColorBlendEquation &&
+                          eds3_query.extendedDynamicState3ColorWriteMask;
+        bool have_poly = eds3_query.extendedDynamicState3PolygonMode;
+
+        if (have_blend) {
+            r->eds3_polygon_mode = have_poly;
+            eds3_features = (VkPhysicalDeviceExtendedDynamicState3FeaturesEXT){
+                .sType =
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
+                .extendedDynamicState3ColorBlendEnable = VK_TRUE,
+                .extendedDynamicState3ColorBlendEquation = VK_TRUE,
+                .extendedDynamicState3ColorWriteMask = VK_TRUE,
+                .extendedDynamicState3PolygonMode = have_poly ? VK_TRUE : VK_FALSE,
+                .pNext = next_struct,
+            };
+            next_struct = &eds3_features;
+        } else {
+            r->extended_dynamic_state3_enabled = false;
+        }
+    }
+
+    VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT vids_features;
+    if (r->vertex_input_dynamic_state_enabled) {
+        vids_features = (VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT){
+            .sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT,
+            .vertexInputDynamicState = VK_TRUE,
+            .pNext = next_struct,
+        };
+        next_struct = &vids_features;
+    }
+
+    VkPhysicalDeviceMultiDrawFeaturesEXT multi_draw_features;
+    if (r->multi_draw_enabled) {
+        multi_draw_features = (VkPhysicalDeviceMultiDrawFeaturesEXT){
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTI_DRAW_FEATURES_EXT,
+            .multiDraw = VK_TRUE,
+            .pNext = next_struct,
+        };
+        next_struct = &multi_draw_features;
+    }
+
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT eds_features;
+    if (r->extended_dynamic_state_enabled) {
+        eds_features = (VkPhysicalDeviceExtendedDynamicStateFeaturesEXT){
+            .sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
+            .extendedDynamicState = VK_TRUE,
+            .pNext = next_struct,
+        };
+        next_struct = &eds_features;
+    }
+
+    /* enable descriptorBindingPartiallyBound via CORE Vulkan 1.2.
+     * The EXT is core-promoted in 1.2, so on modern drivers it isn't separately
+     * listed and the add_extension_if_available path leaves the flag false even
+     * though the feature is fully supported. Query the core feature directly,
+     * independent of any extension-add. On <1.2 (or unsupported) the query
+     * returns false -> flag stays false -> vk/shaders.c keeps writing dummies. */
+    r->descriptor_indexing_enabled = false;
+    VkPhysicalDeviceVulkan12Features vk12_features;
+    {
+        VkPhysicalDeviceVulkan12Features vk12_query = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        };
+        VkPhysicalDeviceFeatures2 features2 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk12_query,
+        };
+        vkGetPhysicalDeviceFeatures2(r->physical_device, &features2);
+
+        /* std430 layout on the uber UBOs needs the device to
+         * validate relaxed uniform-buffer layouts (either 1.2 core feature
+         * suffices). Unsupported -> flag false -> generators emit std140. */
+        bool ubo_std430 = vk12_query.uniformBufferStandardLayout ||
+                               vk12_query.scalarBlockLayout;
+
+        /* cross-draw batching needs runtime sampler arrays
+         * (variable count, partially bound) + gl_DrawID. */
+        bool batched_caps = vk12_query.runtimeDescriptorArray &&
+                         vk12_query.descriptorBindingVariableDescriptorCount &&
+                         vk12_query.descriptorBindingPartiallyBound &&
+                         vk12_query.descriptorBindingSampledImageUpdateAfterBind;
+
+        if (vk12_query.descriptorBindingPartiallyBound || ubo_std430) {
+            vk12_features = (VkPhysicalDeviceVulkan12Features){
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+                .descriptorBindingPartiallyBound =
+                    vk12_query.descriptorBindingPartiallyBound,
+                .uniformBufferStandardLayout =
+                    vk12_query.uniformBufferStandardLayout,
+                .scalarBlockLayout = vk12_query.scalarBlockLayout,
+                .runtimeDescriptorArray = batched_caps,
+                .descriptorBindingVariableDescriptorCount = batched_caps,
+                .descriptorBindingSampledImageUpdateAfterBind = batched_caps,
+                .shaderSampledImageArrayNonUniformIndexing =
+                    batched_caps &&
+                    vk12_query.shaderSampledImageArrayNonUniformIndexing,
+                .pNext = next_struct,
+            };
+            next_struct = &vk12_features;
+            r->descriptor_indexing_enabled =
+                vk12_query.descriptorBindingPartiallyBound;
+            r->uber_ubo_std430 = ubo_std430;
+            r->uber_batched_caps = batched_caps;
+        }
+    }
+
+    /* gl_DrawID needs the 1.1 shaderDrawParameters feature. */
+    VkPhysicalDeviceVulkan11Features vk11_features;
+    {
+        VkPhysicalDeviceVulkan11Features vk11_query = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        };
+        VkPhysicalDeviceFeatures2 f2 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &vk11_query,
+        };
+        vkGetPhysicalDeviceFeatures2(r->physical_device, &f2);
+        if (vk11_query.shaderDrawParameters) {
+            vk11_features = (VkPhysicalDeviceVulkan11Features){
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+                .shaderDrawParameters = VK_TRUE,
+                .pNext = next_struct,
+            };
+            next_struct = &vk11_features;
+        } else {
+            r->uber_batched_caps = false;
+        }
+    }
+
     VkDeviceCreateInfo device_create_info = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .queueCreateInfoCount = 1,
@@ -551,6 +744,11 @@ static bool create_logical_device(PGRAPHState *pg, Error **errp)
         error_setg(errp, "Failed to create logical device (%d)", result);
         return false;
     }
+
+    /* resolve device-level entry points directly — without
+     * this, extension commands (vkCmdSetCullModeEXT etc.) are NULL through
+     * the instance-level trampolines and the first EDS call segfaults. */
+    volkLoadDevice(r->device);
 
     vkGetDeviceQueue(r->device, indices.queue_family, 0, &r->queue);
     return true;

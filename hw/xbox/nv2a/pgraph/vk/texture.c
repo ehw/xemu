@@ -1025,18 +1025,122 @@ static void create_dummy_texture(PGRAPHState *pg)
     pgraph_vk_end_single_time_commands(pg, cmd);
 
     r->dummy_texture = (TextureBinding){
+        .uber_slot = -1,
+        .uber_slot_uint = -1,
         .key.scale = 1.0,
         .image = texture_image,
         .current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         .allocation = texture_allocation,
         .image_view = texture_image_view,
         .sampler = texture_sampler,
+        .uber_dim_w = 16, /* matches the 16x16 create above */
+        .uber_dim_h = 16,
     };
 }
 
 static void destroy_dummy_texture(PGRAPHVkState *r)
 {
     texture_cache_release_node_resources(r, &r->dummy_texture);
+}
+
+static void create_dummy_texture_typed(PGRAPHState *pg, TextureBinding *out,
+                                       VkImageViewType view_type)
+{
+    PGRAPHVkState *r = pg->vk_renderer_state;
+
+    bool is_cube = (view_type == VK_IMAGE_VIEW_TYPE_CUBE);
+    bool is_3d = (view_type == VK_IMAGE_VIEW_TYPE_3D);
+    uint32_t layers = is_cube ? 6 : 1;
+    VkImageType img_type = is_3d ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
+
+    VkImageCreateInfo image_create_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+        .imageType = img_type,
+        .extent.width = 4,
+        .extent.height = 4,
+        .extent.depth = is_3d ? 4 : 1,
+        .mipLevels = 1,
+        .arrayLayers = layers,
+        .format = VK_FORMAT_R8_UNORM,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .flags = is_cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
+    };
+
+    VmaAllocationCreateInfo alloc_create_info = {
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE,
+    };
+
+    VkImage texture_image;
+    VmaAllocation texture_allocation;
+
+    VK_CHECK(vmaCreateImage(r->allocator, &image_create_info,
+                            &alloc_create_info, &texture_image,
+                            &texture_allocation, NULL));
+
+    VkImageViewCreateInfo image_view_create_info = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        .image = texture_image,
+        .viewType = view_type,
+        .format = VK_FORMAT_R8_UNORM,
+        .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+        .subresourceRange.baseMipLevel = 0,
+        .subresourceRange.levelCount = 1,
+        .subresourceRange.baseArrayLayer = 0,
+        .subresourceRange.layerCount = layers,
+        .components = (VkComponentMapping){ VK_COMPONENT_SWIZZLE_R,
+                                            VK_COMPONENT_SWIZZLE_R,
+                                            VK_COMPONENT_SWIZZLE_R,
+                                            VK_COMPONENT_SWIZZLE_R },
+    };
+    VkImageView texture_image_view;
+    VK_CHECK(vkCreateImageView(r->device, &image_view_create_info, NULL,
+                               &texture_image_view));
+
+    VkSamplerCreateInfo sampler_create_info = {
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = VK_FILTER_NEAREST,
+        .minFilter = VK_FILTER_NEAREST,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .anisotropyEnable = VK_FALSE,
+        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE,
+        .unnormalizedCoordinates = VK_FALSE,
+        .compareEnable = VK_FALSE,
+        .compareOp = VK_COMPARE_OP_ALWAYS,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST,
+    };
+
+    VkSampler texture_sampler;
+    VK_CHECK(vkCreateSampler(r->device, &sampler_create_info, NULL,
+                             &texture_sampler));
+
+    VkCommandBuffer cmd = pgraph_vk_begin_single_time_commands(pg);
+    pgraph_vk_transition_image_layout(
+        pg, cmd, texture_image, VK_FORMAT_R8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    pgraph_vk_transition_image_layout(
+        pg, cmd, texture_image, VK_FORMAT_R8_UNORM,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    pgraph_vk_end_single_time_commands(pg, cmd);
+
+    *out = (TextureBinding){
+        .uber_slot = -1,
+        .uber_slot_uint = -1,
+        .key.scale = 1.0,
+        .image = texture_image,
+        .current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .allocation = texture_allocation,
+        .image_view = texture_image_view,
+        .sampler = texture_sampler,
+        .uber_dim_w = 4, /* matches the 4x4 create above */
+        .uber_dim_h = 4,
+    };
 }
 
 static void set_texture_label(PGRAPHState *pg, TextureBinding *texture)
@@ -1239,6 +1343,10 @@ static void create_texture(PGRAPHState *pg, int texture_idx)
     VK_CHECK(vmaCreateImage(r->allocator, &image_create_info,
                             &alloc_create_info, &snode->image,
                             &snode->allocation, NULL));
+    /* capture the level-0 extent (post any surface-to-texture
+     * scaling above) — exactly what textureSize(..., 0) reports. */
+    snode->uber_dim_w = image_create_info.extent.width;
+    snode->uber_dim_h = image_create_info.extent.height;
 
     VkImageViewCreateInfo image_view_create_info = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -1452,10 +1560,13 @@ static void texture_cache_entry_init(Lru *lru, LruNode *node, const void *state)
     snode->allocation = VK_NULL_HANDLE;
     snode->image_view = VK_NULL_HANDLE;
     snode->sampler = VK_NULL_HANDLE;
+    snode->uber_slot = -1;
+    snode->uber_slot_uint = -1;
 }
 
 static void texture_cache_release_node_resources(PGRAPHVkState *r, TextureBinding *snode)
 {
+    pgraph_vk_uber_b_release_slots(r, snode);
     vkDestroySampler(r->device, snode->sampler, NULL);
     snode->sampler = VK_NULL_HANDLE;
 
@@ -1548,6 +1659,12 @@ void pgraph_vk_init_textures(PGRAPHState *pg)
 
     texture_cache_init(r);
     create_dummy_texture(pg);
+    if (r->uber_active) {
+        create_dummy_texture_typed(pg, &r->dummy_texture_cube,
+                                   VK_IMAGE_VIEW_TYPE_CUBE);
+        create_dummy_texture_typed(pg, &r->dummy_texture_3d,
+                                   VK_IMAGE_VIEW_TYPE_3D);
+    }
 
     r->texture_format_properties = g_malloc0_n(
         ARRAY_SIZE(kelvin_color_format_vk_map), sizeof(VkFormatProperties));
@@ -1569,6 +1686,12 @@ void pgraph_vk_finalize_textures(PGRAPHState *pg)
     }
 
     destroy_dummy_texture(r);
+    if (r->dummy_texture_cube.image != VK_NULL_HANDLE) {
+        texture_cache_release_node_resources(r, &r->dummy_texture_cube);
+    }
+    if (r->dummy_texture_3d.image != VK_NULL_HANDLE) {
+        texture_cache_release_node_resources(r, &r->dummy_texture_3d);
+    }
     texture_cache_finalize(r);
 
     assert(r->texture_cache.num_used == 0);

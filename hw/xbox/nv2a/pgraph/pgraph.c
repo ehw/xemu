@@ -317,6 +317,8 @@ static bool attempt_renderer_init(PGRAPHState *pg)
 
 static void init_renderer(PGRAPHState *pg)
 {
+    pg->use_ubershaders = g_config.perf.use_ubershaders;
+
     if (attempt_renderer_init(pg)) {
         return;  // Success
     }
@@ -1637,11 +1639,14 @@ DEF_METHOD_INC(NV097, SET_MATERIAL_EMISSION)
     // FIXME: Verify NV_IGRAPH_XF_LTCTXA_CM_COL is correct
     pg->ltctxa[NV_IGRAPH_XF_LTCTXA_CM_COL][slot] = parameter;
     pg->ltctxa_dirty[NV_IGRAPH_XF_LTCTXA_CM_COL] = true;
+    pg->ltctx_wgen++;
+    pg->uniform_state_gen++;
 }
 
 DEF_METHOD(NV097, SET_MATERIAL_ALPHA)
 {
     pg->material_alpha = *(float*)&parameter;
+    pg->uniform_state_gen++;
 }
 
 DEF_METHOD(NV097, SET_SPECULAR_ENABLE)
@@ -1739,10 +1744,11 @@ DEF_METHOD(NV097, SET_POINT_SIZE)
 DEF_METHOD_INC(NV097, SET_PROJECTION_MATRIX)
 {
     int slot = (method - NV097_SET_PROJECTION_MATRIX) / 4;
-    // pg->projection_matrix[slot] = *(float*)&parameter;
     unsigned int row = NV_IGRAPH_XF_XFCTX_PMAT0 + slot/4;
+    // pg->projection_matrix[slot] = *(float*)&parameter;
     pg->vsh_constants[row][slot%4] = parameter;
     pg->vsh_constants_dirty[row] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD_INC(NV097, SET_MODEL_VIEW_MATRIX)
@@ -1753,6 +1759,7 @@ DEF_METHOD_INC(NV097, SET_MODEL_VIEW_MATRIX)
     unsigned int row = NV_IGRAPH_XF_XFCTX_MMAT0 + matnum*8 + entry/4;
     pg->vsh_constants[row][entry % 4] = parameter;
     pg->vsh_constants_dirty[row] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD_INC(NV097, SET_INVERSE_MODEL_VIEW_MATRIX)
@@ -1763,6 +1770,7 @@ DEF_METHOD_INC(NV097, SET_INVERSE_MODEL_VIEW_MATRIX)
     unsigned int row = NV_IGRAPH_XF_XFCTX_IMMAT0 + matnum*8 + entry/4;
     pg->vsh_constants[row][entry % 4] = parameter;
     pg->vsh_constants_dirty[row] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD_INC(NV097, SET_COMPOSITE_MATRIX)
@@ -1771,6 +1779,7 @@ DEF_METHOD_INC(NV097, SET_COMPOSITE_MATRIX)
     unsigned int row = NV_IGRAPH_XF_XFCTX_CMAT0 + slot/4;
     pg->vsh_constants[row][slot%4] = parameter;
     pg->vsh_constants_dirty[row] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD_INC(NV097, SET_TEXTURE_MATRIX)
@@ -1781,6 +1790,7 @@ DEF_METHOD_INC(NV097, SET_TEXTURE_MATRIX)
     unsigned int row = NV_IGRAPH_XF_XFCTX_T0MAT + tex*8 + entry/4;
     pg->vsh_constants[row][entry%4] = parameter;
     pg->vsh_constants_dirty[row] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD_INC(NV097, SET_FOG_PARAMS)
@@ -1794,6 +1804,8 @@ DEF_METHOD_INC(NV097, SET_FOG_PARAMS)
 
     pg->ltctxa[NV_IGRAPH_XF_LTCTXA_FOG_K][slot] = parameter;
     pg->ltctxa_dirty[NV_IGRAPH_XF_LTCTXA_FOG_K] = true;
+    pg->ltctx_wgen++;
+    pg->uniform_state_gen++;
 }
 
 /* Handles NV097_SET_TEXGEN_PLANE_S,T,R,Q */
@@ -1805,6 +1817,7 @@ DEF_METHOD_INC(NV097, SET_TEXGEN_PLANE_S)
     unsigned int row = NV_IGRAPH_XF_XFCTX_TG0MAT + tex*8 + entry/4;
     pg->vsh_constants[row][entry%4] = parameter;
     pg->vsh_constants_dirty[row] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD(NV097, SET_TEXGEN_VIEW_MODEL)
@@ -1818,6 +1831,7 @@ DEF_METHOD_INC(NV097, SET_FOG_PLANE)
     int slot = (method - NV097_SET_FOG_PLANE) / 4;
     pg->vsh_constants[NV_IGRAPH_XF_XFCTX_FOG][slot] = parameter;
     pg->vsh_constants_dirty[NV_IGRAPH_XF_XFCTX_FOG] = true;
+    pg->vsh_constants_wgen++;
 }
 
 struct CurveCoefficients {
@@ -1925,6 +1939,7 @@ DEF_METHOD_INC(NV097, SET_SPECULAR_PARAMS)
     if (slot == 5) {
         pg->specular_power = reconstruct_specular_power(pg->specular_params);
     }
+    pg->uniform_state_gen++;
 }
 
 DEF_METHOD_INC(NV097, SET_SCENE_AMBIENT_COLOR)
@@ -1933,6 +1948,8 @@ DEF_METHOD_INC(NV097, SET_SCENE_AMBIENT_COLOR)
     // ??
     pg->ltctxa[NV_IGRAPH_XF_LTCTXA_FR_AMB][slot] = parameter;
     pg->ltctxa_dirty[NV_IGRAPH_XF_LTCTXA_FR_AMB] = true;
+    pg->ltctx_wgen++;
+    pg->uniform_state_gen++;
 }
 
 DEF_METHOD_INC(NV097, SET_VIEWPORT_OFFSET)
@@ -1940,12 +1957,14 @@ DEF_METHOD_INC(NV097, SET_VIEWPORT_OFFSET)
     int slot = (method - NV097_SET_VIEWPORT_OFFSET) / 4;
     pg->vsh_constants[NV_IGRAPH_XF_XFCTX_VPOFF][slot] = parameter;
     pg->vsh_constants_dirty[NV_IGRAPH_XF_XFCTX_VPOFF] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD_INC(NV097, SET_POINT_PARAMS)
 {
     int slot = (method - NV097_SET_POINT_PARAMS) / 4;
     pg->point_params[slot] = *(float *)&parameter; /* FIXME: Where? */
+    pg->uniform_state_gen++;
 }
 
 DEF_METHOD_INC(NV097, SET_EYE_POSITION)
@@ -1953,6 +1972,7 @@ DEF_METHOD_INC(NV097, SET_EYE_POSITION)
     int slot = (method - NV097_SET_EYE_POSITION) / 4;
     pg->vsh_constants[NV_IGRAPH_XF_XFCTX_EYEP][slot] = parameter;
     pg->vsh_constants_dirty[NV_IGRAPH_XF_XFCTX_EYEP] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD_INC(NV097, SET_COMBINER_FACTOR0)
@@ -1990,6 +2010,7 @@ DEF_METHOD_INC(NV097, SET_VIEWPORT_SCALE)
     int slot = (method - NV097_SET_VIEWPORT_SCALE) / 4;
     pg->vsh_constants[NV_IGRAPH_XF_XFCTX_VPSCL][slot] = parameter;
     pg->vsh_constants_dirty[NV_IGRAPH_XF_XFCTX_VPSCL] = true;
+    pg->vsh_constants_wgen++;
 }
 
 DEF_METHOD_INC(NV097, SET_TRANSFORM_PROGRAM)
@@ -2019,6 +2040,7 @@ DEF_METHOD_INC(NV097, SET_TRANSFORM_CONSTANT)
     // VertexShaderConstant *constant = &pg->constants[const_load];
     pg->vsh_constants_dirty[const_load] |=
         (parameter != pg->vsh_constants[const_load][slot%4]);
+    pg->vsh_constants_wgen++;
     pg->vsh_constants[const_load][slot%4] = parameter;
 
     if (slot % 4 == 3) {
@@ -2043,6 +2065,7 @@ DEF_METHOD_INC(NV097, SET_VERTEX3F)
 /* Handles NV097_SET_BACK_LIGHT_* */
 DEF_METHOD_INC(NV097, SET_BACK_LIGHT_AMBIENT_COLOR)
 {
+    pg->uniform_state_gen++;
     int slot = (method - NV097_SET_BACK_LIGHT_AMBIENT_COLOR) / 4;
     unsigned int part = NV097_SET_BACK_LIGHT_AMBIENT_COLOR / 4 + slot % 16;
     slot /= 16; /* [Light index] */
@@ -2053,18 +2076,21 @@ DEF_METHOD_INC(NV097, SET_BACK_LIGHT_AMBIENT_COLOR)
         part -= NV097_SET_BACK_LIGHT_AMBIENT_COLOR / 4;
         pg->ltctxb[NV_IGRAPH_XF_LTCTXB_L0_BAMB + slot*6][part] = parameter;
         pg->ltctxb_dirty[NV_IGRAPH_XF_LTCTXB_L0_BAMB + slot*6] = true;
+        pg->ltctx_wgen++;
         break;
     case NV097_SET_BACK_LIGHT_DIFFUSE_COLOR ...
             NV097_SET_BACK_LIGHT_DIFFUSE_COLOR + 8:
         part -= NV097_SET_BACK_LIGHT_DIFFUSE_COLOR / 4;
         pg->ltctxb[NV_IGRAPH_XF_LTCTXB_L0_BDIF + slot*6][part] = parameter;
         pg->ltctxb_dirty[NV_IGRAPH_XF_LTCTXB_L0_BDIF + slot*6] = true;
+        pg->ltctx_wgen++;
         break;
     case NV097_SET_BACK_LIGHT_SPECULAR_COLOR ...
             NV097_SET_BACK_LIGHT_SPECULAR_COLOR + 8:
         part -= NV097_SET_BACK_LIGHT_SPECULAR_COLOR / 4;
         pg->ltctxb[NV_IGRAPH_XF_LTCTXB_L0_BSPC + slot*6][part] = parameter;
         pg->ltctxb_dirty[NV_IGRAPH_XF_LTCTXB_L0_BSPC + slot*6] = true;
+        pg->ltctx_wgen++;
         break;
     default:
         assert(!"Invalid back light type");
@@ -2075,6 +2101,7 @@ DEF_METHOD_INC(NV097, SET_BACK_LIGHT_AMBIENT_COLOR)
 /* Handles all the light source props except for NV097_SET_BACK_LIGHT_* */
 DEF_METHOD_INC(NV097, SET_LIGHT_AMBIENT_COLOR)
 {
+    pg->uniform_state_gen++;
     int slot = (method - NV097_SET_LIGHT_AMBIENT_COLOR) / 4;
     unsigned int part = NV097_SET_LIGHT_AMBIENT_COLOR / 4 + slot % 32;
     slot /= 32; /* [Light index] */
@@ -2085,22 +2112,26 @@ DEF_METHOD_INC(NV097, SET_LIGHT_AMBIENT_COLOR)
         part -= NV097_SET_LIGHT_AMBIENT_COLOR / 4;
         pg->ltctxb[NV_IGRAPH_XF_LTCTXB_L0_AMB + slot*6][part] = parameter;
         pg->ltctxb_dirty[NV_IGRAPH_XF_LTCTXB_L0_AMB + slot*6] = true;
+        pg->ltctx_wgen++;
         break;
     case NV097_SET_LIGHT_DIFFUSE_COLOR ...
            NV097_SET_LIGHT_DIFFUSE_COLOR + 8:
         part -= NV097_SET_LIGHT_DIFFUSE_COLOR / 4;
         pg->ltctxb[NV_IGRAPH_XF_LTCTXB_L0_DIF + slot*6][part] = parameter;
         pg->ltctxb_dirty[NV_IGRAPH_XF_LTCTXB_L0_DIF + slot*6] = true;
+        pg->ltctx_wgen++;
         break;
     case NV097_SET_LIGHT_SPECULAR_COLOR ...
             NV097_SET_LIGHT_SPECULAR_COLOR + 8:
         part -= NV097_SET_LIGHT_SPECULAR_COLOR / 4;
         pg->ltctxb[NV_IGRAPH_XF_LTCTXB_L0_SPC + slot*6][part] = parameter;
         pg->ltctxb_dirty[NV_IGRAPH_XF_LTCTXB_L0_SPC + slot*6] = true;
+        pg->ltctx_wgen++;
         break;
     case NV097_SET_LIGHT_LOCAL_RANGE:
         pg->ltc1[NV_IGRAPH_XF_LTC1_r0 + slot][0] = parameter;
         pg->ltc1_dirty[NV_IGRAPH_XF_LTC1_r0 + slot] = true;
+        pg->ltctx_wgen++;
         break;
     case NV097_SET_LIGHT_INFINITE_HALF_VECTOR ...
             NV097_SET_LIGHT_INFINITE_HALF_VECTOR + 8:
@@ -2117,12 +2148,14 @@ DEF_METHOD_INC(NV097, SET_LIGHT_AMBIENT_COLOR)
         part -= NV097_SET_LIGHT_SPOT_FALLOFF / 4;
         pg->ltctxa[NV_IGRAPH_XF_LTCTXA_L0_K + slot*2][part] = parameter;
         pg->ltctxa_dirty[NV_IGRAPH_XF_LTCTXA_L0_K + slot*2] = true;
+        pg->ltctx_wgen++;
         break;
     case NV097_SET_LIGHT_SPOT_DIRECTION ...
             NV097_SET_LIGHT_SPOT_DIRECTION + 12:
         part -= NV097_SET_LIGHT_SPOT_DIRECTION / 4;
         pg->ltctxa[NV_IGRAPH_XF_LTCTXA_L0_SPT + slot*2][part] = parameter;
         pg->ltctxa_dirty[NV_IGRAPH_XF_LTCTXA_L0_SPT + slot*2] = true;
+        pg->ltctx_wgen++;
         break;
     case NV097_SET_LIGHT_LOCAL_POSITION ...
             NV097_SET_LIGHT_LOCAL_POSITION + 8:
@@ -2494,6 +2527,8 @@ DEF_METHOD_INC(NV097, SET_EYE_DIRECTION)
     int slot = (method - NV097_SET_EYE_DIRECTION) / 4;
     pg->ltctxa[NV_IGRAPH_XF_LTCTXA_EYED][slot] = parameter;
     pg->ltctxa_dirty[NV_IGRAPH_XF_LTCTXA_EYED] = true;
+    pg->ltctx_wgen++;
+    pg->uniform_state_gen++;
 }
 
 DEF_METHOD(NV097, SET_BEGIN_END)
@@ -2924,6 +2959,7 @@ DEF_METHOD_INC(NV097, SET_SPECULAR_FOG_FACTOR)
 
 DEF_METHOD_INC(NV097, SET_SPECULAR_PARAMS_BACK)
 {
+    pg->uniform_state_gen++;
     int slot = (method - NV097_SET_SPECULAR_PARAMS_BACK) / 4;
     pg->specular_params_back[slot] = *(float *)&parameter;
     if (slot == 5) {
@@ -2999,6 +3035,10 @@ DEF_METHOD(NV097, LAUNCH_TRANSFORM_PROGRAM)
     memcpy(state_linkage.input_regs, pg->vertex_state_shader_v0, sizeof(pg->vertex_state_shader_v0));
 
     nv2a_vsh_emu_execute_track_context_writes(&state, &program, pg->vsh_constants_dirty);
+    /* the emulator writes dirty entries internally — bump
+     * once per execution (conservative: a no-write run just re-arms the
+     * uber's scan once). */
+    pg->vsh_constants_wgen++;
 
     nv2a_vsh_program_destroy(&program);
 }
@@ -3177,7 +3217,10 @@ void pgraph_process_pending(NV2AState *d)
     PGRAPHState *pg = &d->pgraph;
     pg->renderer->ops.process_pending(d);
 
-    if (g_config.display.renderer != pg->renderer->type &&
+    bool renderer_changed = g_config.display.renderer != pg->renderer->type;
+    bool uber_changed = g_config.perf.use_ubershaders != pg->use_ubershaders;
+
+    if ((renderer_changed || uber_changed) &&
         pg->renderer_switch_phase == PGRAPH_RENDERER_SWITCH_PHASE_IDLE) {
         pg->renderer_switch_phase = PGRAPH_RENDERER_SWITCH_PHASE_STARTED;
         qemu_event_reset(&pg->renderer_switch_complete);

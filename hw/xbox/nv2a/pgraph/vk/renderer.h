@@ -30,6 +30,9 @@
 #include "hw/xbox/nv2a/pgraph/surface.h"
 #include "hw/xbox/nv2a/pgraph/texture.h"
 #include "hw/xbox/nv2a/pgraph/glsl/shaders.h"
+#include "hw/xbox/nv2a/pgraph/glsl/ubershader.h" /* struct types */
+#include "hw/xbox/nv2a/pgraph/glsl/vsh.h" /* VshUniformValues */
+#include "hw/xbox/nv2a/pgraph/glsl/psh.h" /* PshUniformValues */
 
 #include <vulkan/vulkan.h>
 #include <glslang/Include/glslang_c_interface.h>
@@ -65,10 +68,12 @@ typedef struct PipelineKey {
     bool clear;
     RenderPassState render_pass_state;
     ShaderState shader_state;
-    uint32_t regs[9];
+    uint32_t regs[19];
     VkVertexInputBindingDescription binding_descriptions[NV2A_VERTEXSHADER_ATTRIBUTES];
     VkVertexInputAttributeDescription attribute_descriptions[NV2A_VERTEXSHADER_ATTRIBUTES];
 } PipelineKey;
+
+#define UBER_B_SLOTS 2048
 
 typedef struct PipelineBinding {
     LruNode node;
@@ -102,6 +107,9 @@ typedef struct StorageBuffer {
     VmaAllocation allocation;
     VkMemoryPropertyFlags properties;
     size_t buffer_offset;
+    /* bytes already copied by an earlier chunk submit this
+     * window (delta-copy watermark; reset with buffer_offset post-wait). */
+    size_t synced_offset;
     size_t buffer_size;
     uint8_t *mapped;
 } StorageBuffer;
@@ -186,13 +194,25 @@ typedef struct ShaderBinding {
     struct {
         ShaderModuleInfo *module_info;
         VshUniformLocs uniform_locs;
+        /* uber VSH upload locs cached once per module (mirrors the
+         * geom cache) — kills 15 uniform_index strcmp scans/draw. */
+        ShaderModuleInfo *uber_locs_for;
+        int uber_locs[15];
     } vsh;
     struct {
         ShaderModuleInfo *module_info;
+        /* uniform locs lazily resolved at first upload for the
+         * current module (uber_locs_for tracks which); idempotent re-resolve. */
+        ShaderModuleInfo *uber_locs_for;
+        int uber_locs[6];
     } geom;
     struct {
         ShaderModuleInfo *module_info;
         PshUniformLocs uniform_locs;
+        /* uber PSH upload locs cached once per module (mirrors the
+         * geom cache) — kills 20 uniform_index strcmp scans/draw. */
+        ShaderModuleInfo *uber_locs_for;
+        int uber_locs[21]; /* +u_tex_size */
     } psh;
 } ShaderBinding;
 
@@ -221,6 +241,17 @@ typedef struct TextureBinding {
     uint64_t hash;
     unsigned int draw_time;
     uint32_t submit_time;
+    /* the created image's level-0 extent (post any
+     * surface-to-texture scaling) — carried into the uber PSH UBO so the
+     * shader's RECT normalize reads a uniform instead of doing a
+     * per-fragment textureSize() query (same integers, bit-exact). */
+    uint32_t uber_dim_w, uber_dim_h;
+    /* assigned slots in the batched sampler arrays
+     * (-1 = unassigned). Identity is the binding itself (sampler params
+     * are part of the cache key). Released into the deferred-recycle
+     * list when the binding's resources are destroyed. */
+    int16_t uber_slot;
+    int16_t uber_slot_uint;
 } TextureBinding;
 
 typedef struct QueryReport {
@@ -285,6 +316,10 @@ typedef struct PGRAPHVkDisplayState {
 
     int width, height;
     int draw_time;
+    /* the surface the display image last blitted (with
+     * draw_time above + the pending flags, proves the blit would re-produce
+     * identical bytes — skip it). Reset on display-image recreation. */
+    hwaddr last_vram_addr;
 
     // OpenGL Interop
 #ifdef WIN32
@@ -327,6 +362,16 @@ typedef struct PGRAPHVkState {
     bool debug_utils_extension_enabled;
     bool custom_border_color_extension_enabled;
     bool memory_budget_extension_enabled;
+    bool vertex_input_dynamic_state_enabled;
+    bool extended_dynamic_state_enabled;
+    bool multi_draw_enabled;
+    bool extended_dynamic_state3_enabled;
+    bool eds3_polygon_mode;
+    bool descriptor_indexing_enabled; /* PARTIALLY_BOUND */
+    /* device validates std430 layout on UNIFORM buffers
+     * (uniformBufferStandardLayout and/or scalarBlockLayout, core 1.2) —
+     * the uber blocks emit std430 when set, std140 fallback otherwise. */
+    bool uber_ubo_std430;
 
     VkPhysicalDevice physical_device;
     VkPhysicalDeviceFeatures enabled_physical_device_features;
@@ -337,7 +382,34 @@ typedef struct PGRAPHVkState {
 
     VkQueue queue;
     VkCommandPool command_pool;
-    VkCommandBuffer command_buffers[2];
+    /* chunked submission — pairs of (main, aux) command
+     * buffers cycle within a finish-window so the GPU starts mid-window;
+     * the real finish's fence covers all (same-queue signal order). */
+#define VK_CB_NPAIRS 8
+    VkCommandBuffer command_buffers[2 * VK_CB_NPAIRS];
+    VkSemaphore pair_semaphores[VK_CB_NPAIRS];
+    int cb_pair_index;
+    /* these were file-scope statics, on the assumption that uber_active is
+     * fixed per renderer instance. Switching a live renderer from uber to spec
+     * breaks that: a spec re-init inherited the uber session's tiny-key flag and
+     * hashed/compared full spec keys over the 36-byte uber spans, colliding keys
+     * and selecting the wrong pipelines. They are per-instance now (g_malloc0
+     * zeroes them; init/prebake assign them explicitly). */
+    bool uber_compact_pipeline_key;
+    bool uber_tiny_pipeline_key;
+    uint32_t chunk_count;        /* draws per command-buffer chunk; 0 = off */
+    bool vstream_enabled;     /* vertex-stream path active */
+    /* a pgraph_vk_finish between an attr's stream and the draw's
+     * vkCmdBindVertexBuffers kills the ring epoch (copyback ran, wp reset) —
+     * the bound ring offset would be overwritten by later streams before the
+     * GPU reads it. Per-attr finish-generation stamps let the consume site
+     * retarget exactly the dead entries to the 1:1 mirror (the copyback put
+     * those bytes there). */
+    uint32_t vstream_finish_gen;
+    uint32_t vstream_gen[NV2A_VERTEXSHADER_ATTRIBUTES];
+    hwaddr vstream_mirror_offset[NV2A_VERTEXSHADER_ATTRIBUTES];
+    uint16_t vstream_mask;
+    uint32_t chunk_flushes_since;
 
     VkCommandBuffer command_buffer;
     VkSemaphore command_buffer_semaphore;
@@ -349,7 +421,7 @@ typedef struct PGRAPHVkState {
     VkCommandBuffer aux_command_buffer;
     bool in_aux_command_buffer;
 
-    VkFramebuffer framebuffers[50];
+    VkFramebuffer framebuffers[256];
     int framebuffer_index;
     bool framebuffer_dirty;
 
@@ -359,15 +431,108 @@ typedef struct PGRAPHVkState {
     bool in_draw;
 
     Lru pipeline_cache;
+    /* persistent once-zeroed key template — under the
+     * fully-dynamic uber config every consumed field is rewritten per draw
+     * and nothing else is ever written, so the per-draw ~3KB memset dies. */
+    /* cross-draw batching state. caps = device support
+     * (set at device creation); enabled = caps && multi_draw && the
+     * fully-dynamic config (decided at uber init). Slot manager: slot
+     * identity = (image view, sampler) pair; freed slots recycle only
+     * after the GPU passes the frame that last referenced them. */
+    bool uber_batched_caps;
+    bool uber_batched;
+    /* set 2 = the batched machinery. One persistent set
+     * (UPDATE_AFTER_BIND; fixed-count PARTIALLY_BOUND arrays — variable
+     * count is legal only on the last binding, so fixed 2048 per type).
+     * Record ring: host-visible, reset at finish (GPU idle); per-range
+     * uvec4 records (packed 2D|uint<<16 slot per stage). Freed slots
+     * recycle only after a finish that follows the free. */
+    VkDescriptorSetLayout uber_b_set_layout;
+    VkDescriptorPool uber_b_pool;
+    VkDescriptorSet uber_b_set;
+    VkBuffer uber_b_rec_buffer;
+    VmaAllocation uber_b_rec_alloc;
+    uint8_t *uber_b_rec_mapped;
+    uint32_t uber_b_rec_wp;
+    uint32_t uber_b_rec_capacity;
+
+    /* the cross-flush merge accumulator. Draw-arrays
+     * flushes append ranges here instead of encoding; any real state encode
+     * (hooked at the encode sites) flushes the pending batch first, so
+     * correctness holds by construction. */
+#define UBER_M_CAP 4096
+    VkMultiDrawInfoEXT uber_m_infos[UBER_M_CAP];
+    uint32_t uber_m_count;
+    uint32_t uber_m_base;       /* first record index of the batch */
+    uint32_t uber_m_nflushes;   /* guest flushes folded into the batch */
+    uint32_t uber_m_cap;        /* cross-draw merge cap */
+    /* last-EMITTED dynamic-state values — a dirty EDS block
+     * re-emits only the values that moved (reset with the block caches at
+     * begin_render_pass; dynamic state is per-render-pass-validated here). */
+    struct {
+        bool valid;
+        bool dt, dw;
+        VkCompareOp dop;
+        bool st_en;
+        uint32_t st_ops_key;
+        uint32_t cmask, wmask, ref;
+        VkCullModeFlags cull;
+        VkFrontFace ff;
+        uint32_t bc_packed;
+    } eds1_emit;
+    struct {
+        bool valid;
+        VkColorComponentFlags wm;
+        VkBool32 be;
+        uint32_t eq_key;
+        uint32_t bc_packed;
+        int pm;
+    } eds3_emit;
+    bool uber_m_bds_valid;      /* bind_descriptor_sets shadow */
+    VkDescriptorSet uber_m_bds_sets[3];
+    bool uber_m_vb_valid;       /* bind_vertex_buffer shadow */
+    uint32_t uber_m_vb_n;
+    VkBuffer uber_m_vb_buffers[NV2A_VERTEXSHADER_ATTRIBUTES];
+    VkDeviceSize uber_m_vb_offsets[NV2A_VERTEXSHADER_ATTRIBUTES];
+    uint16_t uber_b_free[4][2048];
+    int uber_b_free_top[4];
+    struct {
+        uint16_t slot;
+        uint8_t type;
+        uint32_t seq;
+    } uber_b_pending[4 * UBER_B_SLOTS];
+    int uber_b_npending;
+    uint32_t uber_b_finish_seq;
+    PipelineKey uber_key_template;
+    bool uber_key_template_init;
     VkPipelineCache vk_pipeline_cache;
     PipelineBinding *pipeline_cache_entries;
     PipelineBinding *pipeline_binding;
     bool pipeline_binding_changed;
 
+    /* 4x-larger descriptor pools (2048 -> 8192) so pgraph_vk_finish, a full GPU
+     * sync, fires about 4x less often on draw-heavy scenes. The three
+     * set-index-keyed arrays below (descriptor_sets, uber_tex_descriptor_sets,
+     * uber_tex_set_pattern) must be the same size, or a mismatch is an
+     * out-of-bounds heap write. Paired with a 4x BUFFER_UNIFORM (buffer.c) since
+     * the uniform staging exhausts too. */
     VkDescriptorPool descriptor_pool;
     VkDescriptorSetLayout descriptor_set_layout;
-    VkDescriptorSet descriptor_sets[1024];
+    VkDescriptorSet descriptor_sets[8192];
     int descriptor_set_index;
+
+    /* uber splits textures into their own descriptor set
+     * (set=1) so per-draw UBO churn rewrites 3 descriptors instead of 19;
+     * the texture set is rewritten only when texture bindings change.
+     * Unused (VK_NULL_HANDLE / 0) when !uber_active. */
+    VkDescriptorSetLayout uber_tex_descriptor_set_layout;
+    VkDescriptorSet uber_tex_descriptor_sets[8192];
+    int uber_tex_descriptor_set_index;
+    /* per-set last-written family pattern (2 bits/stage:
+     * is_cube|is_3d). Dummy-slot descriptors are eternal objects, so when a
+     * recycled set's pattern matches, the up-to-8 dummy writes are skipped
+     * (real-texture slots are always rewritten). 0xFF = unwritten/invalid. */
+    uint8_t uber_tex_set_pattern[8192];
 
     StorageBuffer storage_buffers[BUFFER_COUNT];
 
@@ -384,6 +549,20 @@ typedef struct PGRAPHVkState {
     int num_active_vertex_binding_descriptions;
     hwaddr vertex_attribute_offsets[NV2A_VERTEXSHADER_ATTRIBUTES];
 
+    /* vertex-RAM streaming (uber-only). When an attribute's
+     * vertex bytes are still in-flight (a prior draw reads them) and this draw
+     * needs them, copy them into a 32MB ring at the TOP of BUFFER_VERTEX_RAM and
+     * point the attribute's binding offset straight at the ring copy (exact, no
+     * routing ambiguity) — instead of a full GPU sync. The 1:1 mirror keeps the
+     * OLD bytes for the in-flight draws and is refreshed from the ring at the
+     * next finish (post-drain). Overflow falls back to the sync. */
+    size_t vertex_stream_base;
+    size_t vertex_stream_size;
+    size_t vertex_stream_wp;
+    struct { hwaddr region_start; hwaddr size; size_t stream_pos; }
+        vertex_stream_remap[2048];
+    int vertex_stream_remap_count;
+
     QTAILQ_HEAD(, SurfaceBinding) surfaces;
     QTAILQ_HEAD(, SurfaceBinding) invalid_surfaces;
     SurfaceBinding *color_binding, *zeta_binding;
@@ -396,6 +575,8 @@ typedef struct PGRAPHVkState {
     TextureBinding *texture_cache_entries;
     TextureBinding *texture_bindings[NV2A_MAX_TEXTURES];
     TextureBinding dummy_texture;
+    TextureBinding dummy_texture_cube;
+    TextureBinding dummy_texture_3d;
     bool texture_bindings_changed;
     VkFormatProperties *texture_format_properties;
 
@@ -409,10 +590,100 @@ typedef struct PGRAPHVkState {
     Lru shader_module_cache;
     ShaderModuleCacheEntry *shader_module_cache_entries;
 
+    bool uber_active;
+    bool uber_state_changed;
+    /* uber_program_data_dirty removed — it was computed every
+     * state-dirty draw and never read (write-only vestige of a removed gate). */
+    /* the three uber uniform structs depend
+     * only on shader state + texture bindings + surface dims (the gate),
+     * so they — and their hash contribution — are recomputed only when
+     * uber_structs_dirty; value-only draws reuse these cached copies. */
+    UberPshUniforms uber_psh_cached;
+    UberVshUniforms uber_vsh_cached;
+    UberGeomUniforms uber_geom_cached;
+    uint64_t uber_structs_subhash;
+    /* the per-draw uniform VALUE structs, cached and recomputed
+     * only when a covering signal fires (vsh: state/gen/ltctx/regs/dims — c[]
+     * excluded, texture bindings verified-unread; psh: state/tex/gen/
+     * regs/dims — ltctx verified-unread). Subhashes ride the recomputes.
+     * The 3KB c[] hash contribution, reused while the
+     * constants' dirty flags are clean. */
+    VshUniformValues uber_vsh_values_cached;
+    PshUniformValues uber_psh_values_cached;
+    uint64_t uber_vsh_values_subhash;
+    uint64_t uber_psh_values_subhash;
+    uint64_t uber_c_subhash;
+    /* vsh_values reads pgraph_get_inline_values for
+     * the uniform_attrs, but inline vertex-attr writes (SET_VERTEX_DATA*) bump
+     * no covering signal (unlike material/light/point which bump uniform_state_
+     * gen) — so the value-cache went stale on inline-value changes, breaking
+     * fog/material/spotlight/vsh-round/shadow/blend. Hash the consumed inline
+     * values to gate the vsh-values recompute. */
+    uint64_t uber_inline_values_hash;
+    bool uber_values_valid;
+    bool uber_c_hash_valid;
+    uint32_t uber_tex_enable;
+    uint32_t uber_tex_modes;
+    int32_t uber_depth_format;
+
+    uint64_t last_uniform_state_gen;
+    /* last-consumed writer generations (see pgraph.h). */
+    uint64_t uber_last_c_wgen;
+    uint64_t uber_last_ltctx_wgen;
+    uint32_t last_surface_width, last_surface_height;
+    uint32_t last_alpha_ref, last_z_persp;
+    uint32_t last_setupraster_uniform, last_zoffsetbias, last_zoffsetfactor;
+
+    struct {
+        uint32_t control_0, control_1, control_2, setupraster, blendcolor;
+        bool valid;
+    } eds1_cache;
+    /* EDS3 change-cache, mirroring eds1_cache (invalidated
+     * per render pass alongside it). pm = the resolved VkPolygonMode. */
+    struct {
+        uint32_t control_0, blend, blendcolor;
+        int pm;
+        bool valid;
+    } eds3_cache;
+    /* vertex-input dynamic-state change cache (per render
+     * pass, like the EDS caches). */
+    bool vids_cache_valid;
+    /* FNV hash of the active vertex-input descriptions the
+     * vkCmdSetVertexInputEXT consumes, so the per-draw rebuild only forces a
+     * re-SET when the format actually changes (not every draw). */
+    uint64_t vids_format_hash;
+    bool uber_prebaked;
+    ShaderModuleInfo *uber_vsh_module;
+    ShaderModuleInfo *uber_geom_module;
+    ShaderModuleInfo *uber_geom_quad_module;
+    ShaderModuleInfo *uber_geom_quad_wireframe_module;
+    ShaderModuleInfo *uber_geom_line_module;
+    ShaderModuleInfo *uber_geom_points_module;
+    /* NV passthrough GS for smooth tri-class draws */
+    ShaderModuleInfo *uber_geom_tri_pass_module;
+    bool geom_passthrough_enabled;
+    ShaderModuleInfo *uber_psh_module;
+    ShaderBinding uber_shader_binding;
+    ShaderBinding uber_shader_binding_quad;
+    ShaderBinding uber_shader_binding_quad_wireframe;
+    ShaderBinding uber_shader_binding_line;
+    ShaderBinding uber_shader_binding_points;
+    ShaderBinding uber_shader_binding_tri_pass;
+
     // FIXME: Merge these into a structure
-    uint64_t uniform_buffer_hashes[2];
-    size_t uniform_buffer_offsets[2];
+    uint64_t uniform_buffer_hashes[3];
+    size_t uniform_buffer_offsets[3];
     bool uniforms_changed;
+    /* adaptive content-hash gate. credit tracks the recent UBO
+     * skip rate; hash while it pays, else probe 1/64 to re-arm (so
+     * rapidly-varying content pays almost no hash cost). valid=false marks
+     * the baseline stale after a non-hashed draw so the next hash re-stages. */
+    int uber_hash_credit;
+    uint32_t uber_hash_probe;
+    bool uber_hash_valid;
+    /* skip the per-draw uber-struct std140 upload-expansion when
+     * the structs are byte-identical to last draw (gated on the credit). */
+    uint64_t uber_struct_hash;
 
     VkQueryPool query_pool;
     int max_queries_in_flight; // FIXME: Move out to constant
@@ -429,6 +700,8 @@ typedef struct PGRAPHVkState {
     PGRAPHVkDisplayState display;
     PGRAPHVkComputeState compute;
 } PGRAPHVkState;
+
+void pgraph_vk_uber_b_release_slots(PGRAPHVkState *r, TextureBinding *tb);
 
 // renderer.c
 void pgraph_vk_check_memory_budget(PGRAPHState *pg);
@@ -464,6 +737,8 @@ VkShaderModule pgraph_vk_create_shader_module_from_spv(PGRAPHVkState *r,
                                                        GByteArray *spv);
 ShaderModuleInfo *pgraph_vk_create_shader_module_from_glsl(
     PGRAPHVkState *r, VkShaderStageFlagBits stage, const char *glsl);
+ShaderModuleInfo *pgraph_vk_create_shader_module_from_spirv(
+    PGRAPHVkState *r, const uint8_t *spirv_data, size_t spirv_size);
 void pgraph_vk_ref_shader_module(ShaderModuleInfo *info);
 void pgraph_vk_unref_shader_module(PGRAPHVkState *r, ShaderModuleInfo *info);
 void pgraph_vk_destroy_shader_module(PGRAPHVkState *r, ShaderModuleInfo *info);

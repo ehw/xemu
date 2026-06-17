@@ -37,4 +37,10 @@ ShaderState pgraph_glsl_get_shader_state(PGRAPHState *pg);
 bool pgraph_glsl_check_shader_state_dirty(PGRAPHState *pg,
                                           const ShaderState *state);
 
+/* cheaper binding->state build for the PREBAKED ubershader —
+ * builds vsh+geom (consumed by the dirty check + the uber VSH uniform setters)
+ * but SKIPS set_psh_state (the register-combiner derivation), which the uber
+ * never reads. Parity IDENTICAL. uber-only; spec keeps full get_shader_state. */
+void pgraph_glsl_set_uber_state_min(PGRAPHState *pg, ShaderState *state);
+
 #endif

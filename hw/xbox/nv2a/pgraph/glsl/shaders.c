@@ -93,3 +93,19 @@ bool pgraph_glsl_check_shader_state_dirty(PGRAPHState *pg,
 
     return false;
 }
+
+/* uber-only ShaderState builder that SKIPS set_psh_state —
+ * the uber's PSH uniforms come straight from registers, so of state.psh only
+ * psh.surface_zeta_format is ever read (by check_shader_state_dirty);
+ * vsh+geom are built exactly as get_shader_state does. Spec keeps the full
+ * builder. CONSTRAINT: keep this in sync with what the uber uniform path
+ * reads from binding->state. */
+void pgraph_glsl_set_uber_state_min(PGRAPHState *pg, ShaderState *state)
+{
+    pg->program_data_dirty = false; /* fixme — mirror get_shader_state */
+
+    memset(state, 0, sizeof(*state)); /* as get_shader_state; psh stays zeroed */
+    pgraph_glsl_set_vsh_state(pg, &state->vsh);
+    pgraph_glsl_set_geom_state(pg, &state->geom);
+    state->psh.surface_zeta_format = pg->surface_shape.zeta_format;
+}

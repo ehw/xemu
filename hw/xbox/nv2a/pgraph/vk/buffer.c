@@ -100,13 +100,20 @@ void pgraph_vk_init_buffers(NV2AState *d)
     };
 
     // FIXME: Don't assume that we can render with host mapped buffer
+    /* grow BUFFER_VERTEX_RAM by a 32MB stream ring at the top.
+     * [0, vram) is the 1:1 mirror; [vram, vram+stream) is the conflict ring. */
+    size_t vstream_vram_sz = memory_region_size(d->vram);
+    r->vertex_stream_base = vstream_vram_sz;
+    r->vertex_stream_size = 32 * 1024 * 1024;
+    r->vertex_stream_wp = 0;
+    r->vertex_stream_remap_count = 0;
     r->storage_buffers[BUFFER_VERTEX_RAM] = (StorageBuffer){
         .alloc_info = host_alloc_create_info,
         .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        .buffer_size = memory_region_size(d->vram),
+        .buffer_size = vstream_vram_sz + r->vertex_stream_size,
     };
 
-    r->bitmap_size = memory_region_size(d->vram) / 4096;
+    r->bitmap_size = vstream_vram_sz / 4096;
     r->uploaded_bitmap = bitmap_new(r->bitmap_size);
     bitmap_clear(r->uploaded_bitmap, 0, r->bitmap_size);
 
@@ -128,7 +135,10 @@ void pgraph_vk_init_buffers(NV2AState *d)
         .alloc_info = device_alloc_create_info,
         .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                  VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .buffer_size = 8 * 1024 * 1024,
+        /* 4x (16->64MB) so the uniform staging exhausts ~4x less
+         * often -> fewer pgraph_vk_finish GPU syncs on draw-heavy scenes.
+         * BUFFER_UNIFORM_STAGING mirrors this size (below). */
+        .buffer_size = 64 * 1024 * 1024,
     };
 
     r->storage_buffers[BUFFER_UNIFORM_STAGING] = (StorageBuffer){

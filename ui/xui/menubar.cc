@@ -183,6 +183,11 @@ void ShowMainMenu()
 #endif
                 );
 
+            int uber_idx = g_config.perf.use_ubershaders ? 1 : 0;
+            if (ImGui::Combo("Ubershaders", &uber_idx, "No\0Yes\0")) {
+                g_config.perf.use_ubershaders = (uber_idx == 1);
+            }
+
             int rendering_scale = nv2a_get_surface_scale_factor() - 1;
             if (ImGui::Combo("Int. Resolution Scale", &rendering_scale,
                              "1x\0"
