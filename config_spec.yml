@@ -373,3 +373,6 @@ perf:
   cache_shaders:
     type: bool
     default: true
+  use_ubershaders:
+    type: bool
+    default: false

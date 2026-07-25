@@ -3,6 +3,7 @@ specific_ss.add([files(
 	'geom.c',
 	'psh.c',
 	'shaders.c',
+	'ubershader.c',
 	'vsh.c',
 	'vsh-ff.c',
 	'vsh-prog.c',

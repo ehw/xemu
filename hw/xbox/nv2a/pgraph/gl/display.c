@@ -349,6 +349,9 @@ static void render_display(NV2AState *d, SurfaceBinding *surface)
 
     glViewport(0, 0, width, height);
     glColorMask(true, true, true, true);
+    /* raw clobber of begin-state-tracked values — invalidate
+     * the per-value shadow (see draw.c clear note). */
+    pg->gl_renderer_state->uber_begin_state_valid = false;
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_BLEND);
     glDisable(GL_STENCIL_TEST);
@@ -384,6 +387,14 @@ void pgraph_gl_sync(NV2AState *d)
     }
 
     /* FIXME: Sanity check surface dimensions */
+
+    /* Drain accumulated GL errors from prior drawing (e.g. uber shader) */
+    {
+        GLenum pre_err;
+        while ((pre_err = glGetError()) != GL_NO_ERROR) {
+            fprintf(stderr, "nv2a: GL error 0x%x before display sync\n", pre_err);
+        }
+    }
 
     /* Wait for queued commands to complete */
     pgraph_gl_upload_surface_data(d, surface, !tcg_enabled());

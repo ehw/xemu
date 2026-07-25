@@ -191,6 +191,13 @@ typedef struct PGRAPHState {
 
     uint32_t vsh_constants[NV2A_VERTEXSHADER_CONSTANTS][4];
     bool vsh_constants_dirty[NV2A_VERTEXSHADER_CONSTANTS];
+    /* writer generations for the dirty-flag families above
+     * and the lighting context below — bumped wherever a flag is set (the
+     * uniform_state_gen pattern). Read ONLY by the ubershader bind paths
+     * (both backends) to replace per-draw flag scans with one compare;
+     * nothing in the specialized path reads them. */
+    uint64_t vsh_constants_wgen;
+    uint64_t ltctx_wgen;
 
     /* lighting constant arrays */
     uint32_t ltctxa[NV2A_LTCTXA_COUNT][4];
@@ -263,6 +270,10 @@ typedef struct PGRAPHState {
 
     unsigned int surface_scale_factor;
     uint8_t *scale_buf;
+
+    uint64_t uniform_state_gen;
+
+    bool use_ubershaders;
 
     const PGRAPHRenderer *renderer;
     union {

@@ -1087,7 +1087,30 @@ void pgraph_vk_render_display(PGRAPHState *pg)
     PGRAPHVkDisplayState *disp = &r->display;
     if (!disp->image || disp->width != width || disp->height != height) {
         create_display_image(pg, width, height);
+        disp->last_vram_addr = 0; /* fresh image — must blit */
     }
+
+    /* the UI thread re-renders the display every host present
+     * (~12/guest-frame), each one a full blit + vkQueueSubmit +
+     * synchronous wait contending the render thread's queue — with no check
+     * that anything changed. Skip when the blit would reproduce the exact
+     * bytes already in disp->image: same surface, same draw_time (stamped
+     * per producing draw — equality implies same content version), no
+     * pending guest upload/download, and the pvideo overlay off both last
+     * blit and now (overlay content is frame-varying). The GL-interop
+     * consumer just re-samples the stable imported memory (no per-frame
+     * semaphore handshake exists). Uber-gated; spec path identical. */
+    if (r->uber_active && disp->image &&
+        disp->last_vram_addr == surface->vram_addr &&
+        disp->draw_time == surface->draw_time &&
+        !surface->upload_pending && !surface->download_pending &&
+        !disp->pvideo.state.enabled) {
+        PvideoState cur_pvideo = get_pvideo_state(pg);
+        if (!cur_pvideo.enabled) {
+            return;
+        }
+    }
+    disp->last_vram_addr = surface->vram_addr;
 
     render_display(pg, surface);
 }

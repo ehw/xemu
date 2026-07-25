@@ -114,6 +114,34 @@ static char const * const vertex_data_array_format_to_str[] = {
     [NV097_SET_VERTEX_DATA_ARRAY_FORMAT_TYPE_CMP] = "CMP",
 };
 
+/* FNV-1a over the exact descriptions
+ * vkCmdSetVertexInputEXT consumes (binding + attribute descriptions + counts).
+ * both the array and the inline rebuild paths must keep r->vids_format_hash in
+ * sync with the descriptions they install: an inline-buffer draw SETs the inline
+ * vertex-input on the GPU (begin_draw, vids_cache_valid=true) but historically
+ * left vids_format_hash at the last *array* format, so a following same-format
+ * array draw matched the stale hash, skipped the needed re-SET and rendered with
+ * the inline vertex-input (broke the nxdk Lighting-spotlight cluster). */
+static uint64_t vids_compute_format_hash(PGRAPHVkState *r)
+{
+    uint64_t vh = 1469598103934665603ULL;
+    const uint8_t *vhp = (const uint8_t *)r->vertex_binding_descriptions;
+    size_t vhn = r->num_active_vertex_binding_descriptions *
+                 sizeof(r->vertex_binding_descriptions[0]);
+    for (size_t b = 0; b < vhn; b++) {
+        vh = (vh ^ vhp[b]) * 1099511628211ULL;
+    }
+    vhp = (const uint8_t *)r->vertex_attribute_descriptions;
+    vhn = r->num_active_vertex_attribute_descriptions *
+          sizeof(r->vertex_attribute_descriptions[0]);
+    for (size_t b = 0; b < vhn; b++) {
+        vh = (vh ^ vhp[b]) * 1099511628211ULL;
+    }
+    vh ^= ((uint64_t)r->num_active_vertex_binding_descriptions << 8) ^
+          r->num_active_vertex_attribute_descriptions;
+    return vh;
+}
+
 void pgraph_vk_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
                                       unsigned int max_element,
                                       bool inline_data,
@@ -138,6 +166,18 @@ void pgraph_vk_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
 
     r->num_active_vertex_attribute_descriptions = 0;
     r->num_active_vertex_binding_descriptions = 0;
+    r->vstream_mask = 0;
+    /* the vids invalidation moved to the end of the rebuild and
+     * is now conditional on the format hash (was: unconditional here, which
+     * forced a vkCmdSetVertexInputEXT every draw and defeated the cache). */
+
+    /* memoize the (at most 2) vertex DMA maps for this draw.
+     * nv_dma_map -> nv_dma_load reads the DMA object from guest memory and was
+     * called per attribute for only dma_vertex_a/b; it is
+     * pure, so resolving each once per draw is parity-identical. uber-only. */
+    uint8_t *dma_ptrs[2] = { NULL, NULL };
+    hwaddr dma_lens[2] = { 0, 0 };
+    bool dma_valid[2] = { false, false };
 
     for (int i = 0; i < NV2A_VERTEXSHADER_ATTRIBUTES; i++) {
         VertexAttribute *attr = &pg->vertex_attributes[i];
@@ -197,19 +237,108 @@ void pgraph_vk_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
         size_t stride;
 
         hwaddr start = 0;
+        bool vstream_streamed = false;
+        size_t vstream_off = 0;
         if (inline_data) {
             attrib_data_addr = attr->inline_array_offset;
             stride = inline_stride;
         } else {
             hwaddr dma_len;
-            uint8_t *attr_data = (uint8_t *)nv_dma_map(
-                d, attr->dma_select ? pg->dma_vertex_b : pg->dma_vertex_a,
-                &dma_len);
+            uint8_t *attr_data;
+            if (r->uber_active) { /* per-draw DMA-map memoization */
+                int sel = attr->dma_select ? 1 : 0;
+                if (!dma_valid[sel]) {
+                    dma_ptrs[sel] = (uint8_t *)nv_dma_map(
+                        d, sel ? pg->dma_vertex_b : pg->dma_vertex_a,
+                        &dma_lens[sel]);
+                    dma_valid[sel] = true;
+                }
+                attr_data = dma_ptrs[sel];
+                dma_len = dma_lens[sel];
+            } else {
+                attr_data = (uint8_t *)nv_dma_map(
+                    d, attr->dma_select ? pg->dma_vertex_b : pg->dma_vertex_a,
+                    &dma_len);
+            }
             assert(attr->offset < dma_len);
             attrib_data_addr = attr_data + attr->offset - d->vram_ptr;
             stride = attr->stride;
             start = attrib_data_addr + min_element * stride;
-            update_memory_buffer(d, start, num_elements * stride);
+            /* if these vertex bytes are still in-flight (a prior
+             * draw reads them), stream the NEW copy to the ring + bind there
+             * (offset set below) instead of forcing a GPU sync; otherwise queue
+             * the normal mirror upload. Exact per-attribute key = no ambiguity. */
+            VkDeviceSize vstream_sz = num_elements * stride;
+            size_t vstream_sb = start / TARGET_PAGE_SIZE;
+            size_t vstream_eb =
+                TARGET_PAGE_ALIGN(start + vstream_sz) / TARGET_PAGE_SIZE;
+            size_t vstream_al = (vstream_sz + 15) & ~(size_t)15;
+            bool vstream_want =
+                r->uber_active && r->vstream_enabled && stride && vstream_sz &&
+                /* (Stencil REPLACE_ST/ZERO_ST): never stream an
+                 * attr that needs CPU conversion — pgraph_vk_remap_attributes
+                 * reads its source as d->vram_ptr + vertex_attribute_offsets[]
+                 * (a guest-vram offset), but a STREAMED attr's offset is a
+                 * ring-buffer offset; vram_ptr + ring_off reads past guest RAM →
+                 * garbage converted vertices → corrupted geometry (the stencil-
+                 * write pass drew the wrong shape). Converted attrs are read by
+                 * the GPU from the remap SCRATCH buffer, so streaming them to the
+                 * ring never helped — the ring copy was unused. Excluding them is
+                 * a pure correctness win with no perf cost. */
+                /* only stream an attr whose stride is 4-aligned: an unaligned
+                 * attr is routed through the unaligned-attribute remap, whose
+                 * copy reads d->vram_ptr + vertex_attribute_offsets[] (a guest
+                 * offset), but a streamed attr's offset is a ring-buffer offset,
+                 * so that read would land past guest RAM. A 4-aligned stride with
+                 * the 16-aligned ring write position keeps the streamed offset
+                 * aligned, so the attr is never remapped; unaligned attrs fall
+                 * back to the normal mirror upload path. */
+                (stride % 4 == 0) && !needs_conversion && !d3d_swizzle &&
+                find_next_bit(r->uploaded_bitmap, vstream_eb, vstream_sb) < vstream_eb;
+            if (vstream_want) {
+                /* (a vertex-stream flicker case): the slow-path twin
+                 * (pgraph_vk_update_vertex_ram_buffer) downloads dirty
+                 * overlapping surfaces before reading guest RAM; the stream
+                 * read must too, or it rings stale bytes while the real data
+                 * still sits in a not-yet-downloaded surface (timing-
+                 * dependent, so nondeterministic geometry corruption). The
+                 * download can drain the GPU (clearing uploaded_bitmap), so
+                 * re-test in-flight before committing to the ring. */
+                pgraph_vk_download_surfaces_in_range_if_dirty(pg, start,
+                                                              vstream_sz);
+                vstream_want = find_next_bit(r->uploaded_bitmap, vstream_eb,
+                                          vstream_sb) < vstream_eb;
+            }
+            if (vstream_want &&
+                r->vertex_stream_wp + vstream_al <= r->vertex_stream_size &&
+                r->vertex_stream_remap_count <
+                    (int)ARRAY_SIZE(r->vertex_stream_remap)) {
+                size_t sp = r->vertex_stream_base + r->vertex_stream_wp;
+                memcpy(r->storage_buffers[BUFFER_VERTEX_RAM].mapped + sp,
+                       d->vram_ptr + start, vstream_sz);
+                r->vertex_stream_wp += vstream_al;
+                int e = r->vertex_stream_remap_count++;
+                r->vertex_stream_remap[e].region_start = start;
+                r->vertex_stream_remap[e].size = vstream_sz;
+                r->vertex_stream_remap[e].stream_pos = sp;
+                vstream_off = sp - min_element * stride;
+                vstream_streamed = true;
+                /* stamp the ring epoch + remember the mirror
+                 * fallback for the consume-site retarget. */
+                r->vstream_mask |= 1u << i;
+                r->vstream_gen[i] = r->vstream_finish_gen;
+                r->vstream_mirror_offset[i] = attrib_data_addr;
+                /* Also queue the 1:1 mirror refresh (a deferred
+                 * MemorySyncRequirement — no GPU finish fires, since the in-flight
+                 * readers are on the ring, not the mirror, so the sync-kill win
+                 * is kept). Without this, a later same-window draw whose
+                 * uploaded_bitmap was cleared by a surface download reads STALE
+                 * mirror bytes (broke Stencil_REPLACE_ST/ZERO_ST). Supersedes the
+                 * finish-time copyback, removed in draw.c. */
+                update_memory_buffer(d, start, vstream_sz);
+            } else {
+                update_memory_buffer(d, start, vstream_sz);
+            }
         }
 
         uint32_t provoking_element_index = provoking_element - min_element;
@@ -258,7 +387,8 @@ void pgraph_vk_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
                 .format = vk_format,
             };
 
-        r->vertex_attribute_offsets[i] = attrib_data_addr;
+        r->vertex_attribute_offsets[i] =
+            vstream_streamed ? vstream_off : attrib_data_addr;
 
         if (needs_conversion) {
             pg->compressed_attrs |= (1 << i);
@@ -268,6 +398,19 @@ void pgraph_vk_bind_vertex_attributes(NV2AState *d, unsigned int min_element,
         }
 
         NV2A_VK_DGROUP_END();
+    }
+
+    /* invalidate the vids dynamic-state cache only when the
+     * active vertex-input format actually changed (FNV over the exact
+     * descriptions vkCmdSetVertexInputEXT consumes). The per-render-pass
+     * invalidation in begin_render_pass still forces a re-SET; the buffer
+     * offsets ride vkCmdBindVertexBuffers, not this state. */
+    {
+        uint64_t vh = vids_compute_format_hash(r);
+        if (vh != r->vids_format_hash) {
+            r->vids_format_hash = vh;
+            r->vids_cache_valid = false;
+        }
     }
 
     NV2A_VK_DGROUP_END();
@@ -284,6 +427,7 @@ void pgraph_vk_bind_vertex_attributes_inline(NV2AState *d)
 
     r->num_active_vertex_attribute_descriptions = 0;
     r->num_active_vertex_binding_descriptions = 0;
+    r->vids_cache_valid = false; /* descs are being rebuilt */
 
     for (int i = 0; i < NV2A_VERTEXSHADER_ATTRIBUTES; i++) {
         VertexAttribute *attr = &pg->vertex_attributes[i];
@@ -314,4 +458,11 @@ void pgraph_vk_bind_vertex_attributes_inline(NV2AState *d)
             pg->uniform_attrs |= 1 << i;
         }
     }
+
+    /* keep vids_format_hash in sync with the inline format
+     * installed above. begin_draw will SET this inline vertex-input on the GPU
+     * (vids_cache_valid was cleared at entry); recording the hash here makes the
+     * following array draw re-SET on the inline->array format change instead of
+     * skipping on a stale hash and rendering with the inline vertex-input. */
+    r->vids_format_hash = vids_compute_format_hash(r);
 }

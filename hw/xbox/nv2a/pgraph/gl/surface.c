@@ -149,7 +149,7 @@ static void init_render_to_texture(PGRAPHState *pg)
     glGenVertexArrays(1, &r->s2t_rndr.vao);
     glBindVertexArray(r->s2t_rndr.vao);
     glGenBuffers(1, &r->s2t_rndr.vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, r->s2t_rndr.vbo);
+    pgraph_gl_uber_bind_array_buffer(r, r->s2t_rndr.vbo);
     glBufferData(GL_ARRAY_BUFFER, 0, NULL, GL_STATIC_DRAW);
     glGenFramebuffers(1, &r->s2t_rndr.fbo);
 }
@@ -225,6 +225,7 @@ static void render_surface_to(NV2AState *d, SurfaceBinding *surface,
 {
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
+    pgraph_gl_uber_submit_md(r);
 
     glActiveTexture(GL_TEXTURE0 + texture_unit);
     glBindFramebuffer(GL_FRAMEBUFFER, r->s2t_rndr.fbo);
@@ -243,7 +244,7 @@ static void render_surface_to(NV2AState *d, SurfaceBinding *surface,
     glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
 
     glBindVertexArray(r->s2t_rndr.vao);
-    glBindBuffer(GL_ARRAY_BUFFER, r->s2t_rndr.vbo);
+    pgraph_gl_uber_bind_array_buffer(r, r->s2t_rndr.vbo);
     glUseProgram(r->s2t_rndr.prog);
     glProgramUniform1i(r->s2t_rndr.prog, r->s2t_rndr.tex_loc,
                        texture_unit);
@@ -252,6 +253,9 @@ static void render_surface_to(NV2AState *d, SurfaceBinding *surface,
 
     glViewport(0, 0, width, height);
     glColorMask(true, true, true, true);
+    /* raw clobber of begin-state-tracked values — invalidate
+     * the per-value shadow (see draw.c clear note). */
+    pg->gl_renderer_state->uber_begin_state_valid = false;
     glDisable(GL_DITHER);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_BLEND);
@@ -302,6 +306,10 @@ static void render_surface_to_texture_slow(NV2AState *d,
 
     glTexImage2D(texture->gl_target, 0, f->gl_internal_format, width, height, 0,
                  f->gl_format, f->gl_type, buf);
+    if (texture->gl_target == GL_TEXTURE_2D) {
+        texture->uber_tex_size[0] = width;
+        texture->uber_tex_size[1] = height;
+    }
     g_free(buf);
     glBindTexture(texture->gl_target, texture->gl_texture);
 }
@@ -340,6 +348,10 @@ void pgraph_gl_render_surface_to_texture(NV2AState *d, SurfaceBinding *surface,
     glTexParameteri(texture->gl_target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexImage2D(texture->gl_target, 0, f->gl_internal_format, width, height, 0,
                  f->gl_format, f->gl_type, NULL);
+    if (texture->gl_target == GL_TEXTURE_2D) {
+        texture->uber_tex_size[0] = width;
+        texture->uber_tex_size[1] = height;
+    }
     glBindTexture(texture->gl_target, 0);
     render_surface_to(d, surface, texture_unit, texture->gl_target,
                              texture->gl_texture, width, height);
@@ -636,6 +648,7 @@ static void bind_current_surface(NV2AState *d)
 {
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
+    pgraph_gl_uber_submit_md(r);
 
     if (r->color_binding) {
         glFramebufferTexture2D(GL_FRAMEBUFFER, r->color_binding->fmt.gl_attachment,
@@ -684,6 +697,7 @@ static void surface_download_to_buffer(NV2AState *d, SurfaceBinding *surface,
                                        uint8_t *pixels)
 {
     PGRAPHState *pg = &d->pgraph;
+    pgraph_gl_uber_submit_md(pg->gl_renderer_state);
 
     swizzle &= surface->swizzle;
     downscale &= (pg->surface_scale_factor != 1);
@@ -791,6 +805,7 @@ void pgraph_gl_process_pending_downloads(NV2AState *d)
 {
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
+    pgraph_gl_uber_submit_md(r);
 
     SurfaceBinding *surface;
     QTAILQ_FOREACH(surface, &r->surfaces, entry) {
@@ -872,6 +887,7 @@ void pgraph_gl_upload_surface_data(NV2AState *d, SurfaceBinding *surface,
     if (!(surface->upload_pending || force)) {
         return;
     }
+    pgraph_gl_uber_submit_md(d->pgraph.gl_renderer_state);
 
     nv2a_profile_inc_counter(NV2A_PROF_SURF_UPLOAD);
 
@@ -1103,6 +1119,7 @@ static void update_surface_part(NV2AState *d, bool upload, bool color)
 {
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
+    pgraph_gl_uber_submit_md(r);
 
     SurfaceBinding entry;
     populate_surface_binding_entry(d, color, &entry);
@@ -1292,6 +1309,7 @@ void pgraph_gl_unbind_surface(NV2AState *d, bool color)
 {
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
+    pgraph_gl_uber_submit_md(r);
 
     if (color) {
         if (r->color_binding) {

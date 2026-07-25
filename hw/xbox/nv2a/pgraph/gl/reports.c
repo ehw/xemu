@@ -58,6 +58,7 @@ void pgraph_gl_process_pending_reports(NV2AState *d)
 {
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
+    pgraph_gl_uber_submit_md(r);
     QueryReport *report, *next;
 
     QSIMPLEQ_FOREACH_SAFE(report, &r->report_queue, entry, next) {
@@ -98,6 +99,7 @@ void pgraph_gl_get_report(NV2AState *d, uint32_t parameter)
 {
     PGRAPHState *pg = &d->pgraph;
     PGRAPHGLState *r = pg->gl_renderer_state;
+    pgraph_gl_uber_submit_md(r);
 
     QueryReport *report = g_malloc(sizeof(QueryReport));
     report->clear = false;

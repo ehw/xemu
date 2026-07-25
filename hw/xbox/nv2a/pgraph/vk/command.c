@@ -57,6 +57,7 @@ static void create_command_buffers(PGRAPHState *pg)
 
     r->command_buffer = r->command_buffers[0];
     r->aux_command_buffer = r->command_buffers[1];
+    r->cb_pair_index = 0;
 }
 
 static void destroy_command_buffers(PGRAPHState *pg)
