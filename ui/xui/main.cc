@@ -309,7 +309,6 @@ void xemu_hud_update(void)
     first_boot_window.Draw();
     monitor_window.Draw();
     apu_window.Draw();
-    video_window.Draw();
     compatibility_reporter_window.Draw();
 #if defined(_WIN32)
     update_window.Draw();
@@ -324,6 +323,9 @@ void xemu_hud_update(void)
 
 void xemu_hud_render()
 {
+    // Only reads stats, so draw it without the BQL; the plots are slow
+    video_window.Draw();
+
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
