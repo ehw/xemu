@@ -386,10 +386,16 @@ int nv2a_get_framebuffer_surface(void)
     assert(!pg->framebuffer_in_use);
     pg->framebuffer_in_use = true;
 
-    /* The display only changes at vblank, so don't redraw it more often */
+    /*
+     * The display only changes at vblank, so don't redraw it more often.
+     * Right after a vblank, also wait for the guest's flip: the new frame
+     * only reaches the display after it.
+     */
     uint32_t vblank_count = qatomic_read(&d->pcrtc.vblank_count);
     if (pg->framebuffer_surface &&
-        pg->framebuffer_vblank_count == vblank_count) {
+        (pg->framebuffer_vblank_count == vblank_count ||
+         (qatomic_read(&pg->waiting_for_flip) &&
+          vblank_count - pg->framebuffer_vblank_count == 1))) {
         s = pg->framebuffer_surface;
     } else if (pg->renderer->ops.get_framebuffer_surface) {
         s = pg->renderer->ops.get_framebuffer_surface(d);
