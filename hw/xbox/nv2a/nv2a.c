@@ -208,6 +208,7 @@ static void nv2a_vga_gfx_update(void *opaque)
     NV2AState *d = container_of(vga, NV2AState, vga);
     d->pcrtc.pending_interrupts |= NV_PCRTC_INTR_0_VBLANK;
     d->pcrtc.raster = 0;
+    qatomic_inc(&d->pcrtc.vblank_count);
 
     nv2a_update_irq(d);
 }
