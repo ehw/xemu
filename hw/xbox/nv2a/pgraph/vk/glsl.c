@@ -324,7 +324,7 @@ static void block_to_uniforms(const SpvReflectBlockVariable *block, ShaderUnifor
     // fprintf(stderr, "--\n");
 }
 
-static void init_layout_from_spv(ShaderModuleInfo *info)
+void pgraph_vk_init_layout_from_spv(ShaderModuleInfo *info)
 {
     SpvReflectResult result = spvReflectCreateShaderModule(
         info->spirv->len, info->spirv->data, &info->reflect_module);
@@ -397,7 +397,7 @@ ShaderModuleInfo *pgraph_vk_create_shader_module_from_glsl(
     info->spirv = pgraph_vk_compile_glsl_to_spv(
         r, vk_shader_stage_to_glslang_stage(stage), glsl);
     info->module = pgraph_vk_create_shader_module_from_spv(r, info->spirv);
-    init_layout_from_spv(info);
+    pgraph_vk_init_layout_from_spv(info);
     return info;
 }
 
